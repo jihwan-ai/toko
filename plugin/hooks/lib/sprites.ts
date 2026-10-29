@@ -1,27 +1,6 @@
-import type { TokoColor, TokoEyes, TokoMood, TokoPattern } from '../../types'
+import type { TokoMood, TokoSpecies } from '../../types'
 
 export type Grid = readonly string[]
-
-export const BODY: Grid = [
-  '...o........o...',
-  '..obo......obo..',
-  '..obboooooobbo..',
-  '.obbbbbbbbbbbbo.',
-  '.obbbbbbbbbbbbo.',
-  'obbbbbbbbbbbbbbo',
-  'obbbbbbbbbbbbbbo',
-  'obbbbbbbbbbbbbbo',
-  'obbbbbbbbbbbbbbo',
-  'obbbbllllllbbbbo',
-  '.obbbllllllbbbo.',
-  '.obbbbllllbbbbo.',
-  '..obbbbbbbbbbo..',
-  '...oooooooooo...',
-]
-
-export const EAR_TIPS_CHILD: Grid = ['..o..........o..']
-
-export const TAIL_ADULT: Grid = ['oo', 'bo', 'o.']
 
 export const FEET = {
   stand: '...oo......oo...',
@@ -30,17 +9,17 @@ export const FEET = {
   tuck: '................',
 } as const
 
-export const PATTERNS: Readonly<Record<TokoPattern, readonly (readonly [number, number])[]>> = {
-  plain: [],
-  spots: [[3, 3], [4, 3], [11, 4], [12, 8], [2, 9], [13, 10]],
-  stripe: [[6, 3], [7, 3], [8, 3], [9, 3], [7, 4], [8, 4]],
-}
+type Point = readonly [number, number]
 
-export const FACE = { leftEye: [3, 5], rightEye: [11, 5], mouth: [7, 7], leftBlush: [2, 7], rightBlush: [13, 7] } as const
+export type Face = { leftEye: Point; rightEye: Point; mouth: Point; leftBlush: Point; rightBlush: Point }
+
+const FACE: Face = { leftEye: [3, 5], rightEye: [11, 5], mouth: [7, 7], leftBlush: [2, 7], rightBlush: [13, 7] }
+
+type EyeStyle = 'round' | 'dot' | 'sparkle'
 
 type EyeShape = 'open' | 'happy' | 'closed' | 'lidded'
 
-const EYE_GRIDS: Readonly<Record<TokoEyes, readonly [Grid, Grid]>> = {
+const EYE_GRIDS: Readonly<Record<EyeStyle, readonly [Grid, Grid]>> = {
   round: [['we', 'ee'], ['we', 'ee']],
   dot: [['.e', '.e'], ['e.', 'e.']],
   sparkle: [['we', 'ew'], ['we', 'ew']],
@@ -52,8 +31,321 @@ const EYE_SHAPES: Readonly<Record<Exclude<EyeShape, 'open'>, Grid>> = {
   lidded: ['oo', 'ee'],
 }
 
-export const eyeGrids = (eyes: TokoEyes, shape: EyeShape): readonly [Grid, Grid] =>
+export const eyeGrids = (eyes: EyeStyle, shape: EyeShape): readonly [Grid, Grid] =>
   shape === 'open' ? EYE_GRIDS[eyes] : [EYE_SHAPES[shape], EYE_SHAPES[shape]]
+
+export type Mark = { grid: Grid; dx: number; dy: number }
+
+export type SpeciesArt = {
+  body: Grid
+  eyes: EyeStyle
+  face: Face
+  colors: { o: string; b: string; l: string; p: string; t: string; m?: string }
+  child?: Mark
+  adult?: Mark
+  hatDy: number
+  isFloating?: boolean
+}
+
+export const SPECIES_ART: Readonly<Record<TokoSpecies, SpeciesArt>> = {
+  cat: {
+    body: [
+      '...o........o...',
+      '..obo......obo..',
+      '..obboooooobbo..',
+      '.obbbbbbbbbbbbo.',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbllllllbbbbo',
+      '.obbbllllllbbbo.',
+      '.obbbbllllbbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'round',
+    face: FACE,
+    colors: { o: '#332233', b: '#FFDD99', l: '#FFEECC', p: '#FF9999', t: '#EEBB77' },
+    child: { grid: ['..o..........o..'], dx: 0, dy: -1 },
+    adult: { grid: ['oo', 'bo', 'o.'], dx: -1, dy: 9 },
+    hatDy: 0,
+  },
+  bear: {
+    body: [
+      '.ooo........ooo.',
+      'oblbo......oblbo',
+      'obbboooooooobbbo',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbllllllbbbbo',
+      'obbbbbllllbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      '.obbbllllllbbbo.',
+      '.obbbbllllbbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'dot',
+    face: FACE,
+    colors: { o: '#331F11', b: '#C08A5A', l: '#F0DCC0', p: '#FF9988', t: '#9A6A40', m: '#442211' },
+    adult: { grid: ['oo', 'bo'], dx: -1, dy: 10 },
+    hatDy: 0,
+  },
+  chick: {
+    body: [
+      '.......oo.......',
+      '......obbo......',
+      '....oooooooo....',
+      '...obbbbbbbbo...',
+      '..obbbbbbbbbbo..',
+      '.obbbbbbbbbbbbo.',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbllllbbbbbo',
+      '.obbbllllllbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'dot',
+    face: FACE,
+    colors: { o: '#443311', b: '#FFE066', l: '#FFF4BB', p: '#FFAA88', t: '#FFCC33', m: '#FF8833' },
+    adult: { grid: ['o.', 'bo', 'o.'], dx: -1, dy: 8 },
+    hatDy: 1,
+  },
+  bunny: {
+    body: [
+      '..oo........oo..',
+      '.oblo......olbo.',
+      '.oblo......olbo.',
+      '..obboooooobbo..',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbllllbbbbbo',
+      '.obbbllllllbbbo.',
+      '.obbbbllllbbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'round',
+    face: FACE,
+    colors: { o: '#443344', b: '#F6F0F2', l: '#FFC8D8', p: '#FF99AA', t: '#FFFFFF' },
+    adult: { grid: ['oo', 'Wo', 'oo'], dx: -1, dy: 9 },
+    hatDy: 0,
+  },
+  frog: {
+    body: [
+      '..oooo....oooo..',
+      '.obbbbo..obbbbo.',
+      '.obbbbboobbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbllllllllbbbo',
+      '.obbllllllllbbo.',
+      '.obbbllllllbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'round',
+    face: { leftEye: [3, 2], rightEye: [11, 2], mouth: [7, 6], leftBlush: [2, 5], rightBlush: [13, 5] },
+    colors: { o: '#1F3322', b: '#8CD06A', l: '#E2F2B0', p: '#FF9999', t: '#5FA84A' },
+    hatDy: -1,
+  },
+  penguin: {
+    body: [
+      '....oooooooo....',
+      '...obbbbbbbbo...',
+      '..obbbbbbbbbbo..',
+      '.obbbbbbbbbbbbo.',
+      '.obllllbbllllbo.',
+      'obllllllllllllbo',
+      'obllllllllllllbo',
+      'obllllllllllllbo',
+      'obbllllllllllbbo',
+      'obbbllllllllbbbo',
+      '.obbllllllllbbo.',
+      '.obbbllllllbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'dot',
+    face: FACE,
+    colors: { o: '#111A22', b: '#3A4A5C', l: '#FFFFFF', p: '#FFAABB', t: '#2A3644', m: '#FF9922' },
+    hatDy: 0,
+  },
+  fox: {
+    body: [
+      '.oo..........oo.',
+      '.olo........olo.',
+      '.ollo......ollo.',
+      '.obbboooooobbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'olllbbbbbbbblllo',
+      'obllllllllllllbo',
+      'obbllllllllllbbo',
+      '.obbbllllllbbbo.',
+      '.obbbbllllbbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'sparkle',
+    face: FACE,
+    colors: { o: '#3A1F14', b: '#F28A3C', l: '#FFF1E2', p: '#FF7766', t: '#FFF1E2' },
+    adult: { grid: ['.oo', 'obb', 'obl', '.oo'], dx: -2, dy: 7 },
+    hatDy: 0,
+  },
+  dragon: {
+    body: [
+      '...y........y...',
+      '..yyo......oyy..',
+      '..obboooooobbo..',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbllllllbbbbo',
+      '.obbbTTTTTTbbbo.',
+      '.obbbbllllbbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'sparkle',
+    face: FACE,
+    colors: { o: '#163330', b: '#5CC8A8', l: '#EAF8C8', p: '#FF99BB', t: '#3FA88C' },
+    adult: { grid: ['oy', 'bo', 'o.'], dx: -1, dy: 9 },
+    hatDy: 0,
+  },
+  unicorn: {
+    body: [
+      '.......Y........',
+      '..o....yY....o..',
+      '.obo..oyyo..obo.',
+      '.obboooooooobbo.',
+      'okkbbbbbbbbbbbbo',
+      'okbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbllllllbbbbo',
+      '.obbbllllllbbbo.',
+      '.obbbbllllbbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'sparkle',
+    face: FACE,
+    colors: { o: '#443355', b: '#FAF6FF', l: '#E8DDFF', p: '#FFAACC', t: '#CCBBFF' },
+    adult: { grid: ['ok', 'kq', 'o.'], dx: -1, dy: 9 },
+    hatDy: 0,
+  },
+  ghost: {
+    body: [
+      '.....oooooo.....',
+      '...oobbbbbboo...',
+      '..obbbbbbbbbbo..',
+      '.obbbbbbbbbbbbo.',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbobbbbobbbbo',
+      '.oooo.oooo.oooo.',
+    ],
+    eyes: 'round',
+    face: FACE,
+    colors: { o: '#555577', b: '#F4F6FF', l: '#FFFFFF', p: '#FFBBDD', t: '#DDE2F5' },
+    hatDy: 0,
+    isFloating: true,
+  },
+  phoenix: {
+    body: [
+      '......y.y.......',
+      '.....yRyRy......',
+      '....oooooooo....',
+      '...obbbbbbbbo...',
+      '..obbbbbbbbbbo..',
+      '.obbbbbbbbbbbbo.',
+      '.obbbbbbbbbbbbo.',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbllllbbbbbo',
+      'obbbllllllllbbbo',
+      '.obbbllllllbbbo.',
+      '..obbbbbbbbbbo..',
+      '...oooooooooo...',
+    ],
+    eyes: 'sparkle',
+    face: FACE,
+    colors: { o: '#441111', b: '#FF6633', l: '#FFCC55', p: '#FFDD88', t: '#FFAA22', m: '#FFDD44' },
+    adult: { grid: ['.y', 'Ro', 'yo', 'R.'], dx: -1, dy: 7 },
+    hatDy: 1,
+  },
+  robot: {
+    body: [
+      '.......R........',
+      '.......a........',
+      '.oooooooooooooo.',
+      'obbbbbbbbbbbbbbo',
+      'obllllllllllllbo',
+      'obllllllllllllbo',
+      'obllllllllllllbo',
+      'obllllllllllllbo',
+      'obllllllllllllbo',
+      'obbbbbbbbbbbbbbo',
+      'obbTTbbbbbbTTbbo',
+      'obbbbbbbbbbbbbbo',
+      'obbbbbbbbbbbbbbo',
+      '.oooooooooooooo.',
+    ],
+    eyes: 'round',
+    face: FACE,
+    colors: { o: '#2A2F3A', b: '#AAB4C4', l: '#CCEEFF', p: '#FF99AA', t: '#FFCC44' },
+    hatDy: 1,
+  },
+  axolotl: {
+    body: [
+      '....oooooooo....',
+      'k..obbbbbbbbo..k',
+      '.kobbbbbbbbbbok.',
+      'kkobbbbbbbbbbokk',
+      '.kobbbbbbbbbbok.',
+      'k.obbbbbbbbbbo.k',
+      '..obbbbbbbbbbo..',
+      '..obbbbbbbbbbo..',
+      '..obbbbbbbbbbo..',
+      '..obbbllllbbbo..',
+      '..obbllllllbbo..',
+      '..obbbllllbbbo..',
+      '...obbbbbbbbo...',
+      '....oooooooo....',
+    ],
+    eyes: 'dot',
+    face: { ...FACE, leftBlush: [3, 7], rightBlush: [12, 7] },
+    colors: { o: '#663344', b: '#FFC4D6', l: '#FFE6EE', p: '#FF88AA', t: '#FF6699' },
+    adult: { grid: ['oo', 'bo'], dx: 1, dy: 10 },
+    hatDy: 0,
+  },
+}
 
 export const MOUTHS = {
   small: [[0, 0, 'm'], [1, 0, 'm']],
@@ -182,13 +474,6 @@ export const hex = (value: string): number => {
   return (r << 16) | (g << 8) | b
 }
 
-const BODY_COLORS: Readonly<Record<TokoColor, { o: string; b: string; l: string; p: string; t: string }>> = {
-  honey: { o: '#332233', b: '#FFDD99', l: '#FFEECC', p: '#FF9999', t: '#EEBB77' },
-  mint: { o: '#223333', b: '#AAEECC', l: '#DDFFEE', p: '#FF9999', t: '#88DDAA' },
-  peach: { o: '#332222', b: '#FFBBAA', l: '#FFDDCC', p: '#FF8888', t: '#EE9988' },
-  lavender: { o: '#222233', b: '#CCBBEE', l: '#EEDDFF', p: '#FF99BB', t: '#AA99DD' },
-}
-
 const SHARED: Readonly<Record<string, string>> = {
   e: '#221122',
   w: '#FFFFFF',
@@ -228,8 +513,8 @@ const SHARED: Readonly<Record<string, string>> = {
 
 export type Palette = ReadonlyMap<string, number>
 
-export const paletteOf = (color: TokoColor): Palette => {
-  const body = BODY_COLORS[color]
+export const paletteOf = (species: TokoSpecies): Palette => {
+  const { m, ...body } = SPECIES_ART[species].colors
   const entries: [string, string][] = [
     ...Object.entries(SHARED),
     ['o', body.o],
@@ -237,6 +522,7 @@ export const paletteOf = (color: TokoColor): Palette => {
     ['l', body.l],
     ['p', body.p],
     ['T', body.t],
+    ...(m === undefined ? [] : [['m', m] as [string, string]]),
   ]
   return new Map(entries.map(([key, value]) => [key, hex(value)]))
 }

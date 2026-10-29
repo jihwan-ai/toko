@@ -5,10 +5,10 @@ import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
 import { closestBadges } from './lib/badges'
-import { SHOP, shopItem } from './lib/economy'
+import { SHOP, SPEND, shopItem } from './lib/economy'
 import { meterLevel, meterText } from './lib/meter'
-import { STAGE_LABEL, UNNAMED, nameOf } from './lib/pet'
-import { ACTION_LABEL } from './lib/plaza'
+import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
+import { ACTION_LABEL, visitorText } from './lib/plaza'
 import { encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, resize } from './lib/scene'
 import { KAOMOJI } from './lib/sprites'
@@ -23,6 +23,7 @@ import {
   buyItem,
   choose,
   createCtx,
+  drawFromRoom,
   feedCommand,
   focusCommand,
   gameCatch,
@@ -33,6 +34,7 @@ import {
   memoFill,
   permissionAsked,
   petStatus,
+  pickPet,
   playCommand,
   plazaAct,
   roomOpenedFromBand,
@@ -50,6 +52,7 @@ import {
 } from './runtime'
 
 const petAtom = atom({ plugin: 'toko', key: 'pet' } as const, null)
+const shelfAtom = atom({ plugin: 'toko', key: 'shelf' } as const, [])
 const needsAtom = atom({ plugin: 'toko', key: 'needs' } as const, null)
 const moodAtom = atom({ plugin: 'toko', key: 'mood' } as const, 'calm')
 const walletAtom = atom({ plugin: 'toko', key: 'wallet' } as const, null)
@@ -66,6 +69,7 @@ const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
 const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
 const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
+const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -265,7 +269,13 @@ export const register: Register = (on, options) => {
     )
   })
 
-  on('ui.render', { component: 'Spinner' }, async ($, e, next) => ((await read($, ouchAtom)) ? next({ ...e, props: { ...e.props, message: '아야…' } }) : next(e)))
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (await read($, ouchAtom)) {
+      return next({ ...e, props: { ...e.props, message: '아야…' } })
+    }
+    const visitor = await read($, visitorAtom)
+    return visitor === null ? next(e) : next({ ...e, props: { ...e.props, message: visitorText(visitor) } })
+  })
 
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     const earnings = await read($, earningsAtom)
@@ -293,8 +303,9 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, wallet, needs, mood, plaza, lessons, progress, focus, memos] = await Promise.all([
+    const [pet, shelf, wallet, needs, mood, plaza, lessons, progress, focus, memos] = await Promise.all([
       read($, petAtom),
+      read($, shelfAtom),
       read($, walletAtom),
       read($, needsAtom),
       read($, moodAtom),
@@ -326,7 +337,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" gap={1}>
         {hasPicture && ctx.room !== null && <Raster key={ROOM_KEY} columns={columns} rows={ROOM_ROWS} cells={ctx.room.lastCells} />}
         <Box flexDirection="column">
-          <Text weight="bold">{soul === null || soul === undefined ? '알' : `${nameOf(pet) ?? UNNAMED} · ${STAGE_LABEL[pet?.growth.stage ?? 'baby']} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
+          <Text weight="bold">{pet === null || soul === null || soul === undefined ? '알' : `${nameOf(pet) ?? UNNAMED} · ${SPECIES[pet.bones.species].label} · ${STAGE_LABEL[pet.growth.stage]} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
           {soul !== null && soul !== undefined && (
             <Text dimColor>
               {soul.personality} — {soul.quirk}
@@ -429,6 +440,19 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         ))}
+        <Box flexDirection="column">
+          <Text weight="bold">펫 · 보관함 {shelf.length}마리</Text>
+          <Box flexWrap="wrap" gap={1}>
+            <Button key="draw" variant="primary" onPress={press(() => drawFromRoom($, ctx))}>
+              펫 뽑기 <Text dimColor>{String(SPEND.draw)}</Text>
+            </Button>
+            {shelf.map(shelved => (
+              <Button key={`pick-${shelved.id}`} onPress={press(() => pickPet($, ctx, shelved.id))}>
+                {`${shelved.soul === null ? '알' : (nameOf(shelved) ?? UNNAMED)} · ${SPECIES[shelved.bones.species].label}`} <Text dimColor>{RARITY_LABEL[rarityOf(shelved.bones)]}</Text>
+              </Button>
+            ))}
+          </Box>
+        </Box>
         {owned.length > 0 && (
           <Box flexDirection="column">
             <Text weight="bold">꾸미기</Text>

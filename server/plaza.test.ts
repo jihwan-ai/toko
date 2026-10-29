@@ -78,6 +78,18 @@ describe('plaza', () => {
     expect(await broken('hi')).toBe(null)
   })
 
+  test('a species rides along with the pet, and an odd one is dropped', async () => {
+    const plaza = createPlaza()
+    await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '말랑'), species: 'fox' }, since: 0 }))
+    await plaza.handle(post('/v1/poll', { me: { ...me('bbbb2', '콩떡'), species: '<script>' }, since: 0 }))
+    const seen = await read(await plaza.handle(post('/v1/poll', { me: me('cccc3', '보들'), since: 0 })))
+    expect(seen.body.friends.map((friend: { name: string; species?: string }) => [friend.name, friend.species ?? null])).toEqual([
+      ['말랑', 'fox'],
+      ['콩떡', null],
+    ])
+    expect(seen.body.events.find((event: { from: { name: string } }) => event.from.name === '말랑')?.from.species).toBe('fox')
+  })
+
   test('the status page lists the pets in the plaza and escapes their names', async () => {
     const plaza = createPlaza()
     await plaza.handle(post('/v1/poll', { me: { ...me('aaaa1', '<b>말랑'), color: 'peach' }, since: 0 }))

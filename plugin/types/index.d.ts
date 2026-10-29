@@ -1,17 +1,9 @@
-export type TokoColor = 'honey' | 'mint' | 'peach' | 'lavender'
-export type TokoPattern = 'plain' | 'spots' | 'stripe'
-export type TokoEyes = 'round' | 'dot' | 'sparkle'
-export type TokoRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary'
+export type TokoSpecies = 'cat' | 'bear' | 'chick' | 'bunny' | 'frog' | 'penguin' | 'fox' | 'dragon' | 'unicorn' | 'ghost' | 'phoenix' | 'robot' | 'axolotl'
+export type TokoRarity = 'normal' | 'rare'
 export type TokoStage = 'egg' | 'baby' | 'child' | 'adult'
 export type TokoMood = 'excited' | 'calm' | 'sleepy' | 'worried' | 'sulky'
 
-export type TokoBones = {
-  seed: number
-  color: TokoColor
-  pattern: TokoPattern
-  eyes: TokoEyes
-  rarity: TokoRarity
-}
+export type TokoBones = { seed: number; species: TokoSpecies }
 
 export type TokoTraits = { energetic: number; chatty: number; worried: number; playful: number }
 
@@ -27,7 +19,7 @@ export type TokoSoul = {
 
 export type TokoGrowth = { stage: TokoStage; daysTogether: number; breaksAccepted: number; lastDay: string }
 
-export type TokoPet = { bones: TokoBones; soul: TokoSoul | null; growth: TokoGrowth }
+export type TokoPet = { id: string; bones: TokoBones; soul: TokoSoul | null; growth: TokoGrowth }
 
 export type TokoNeeds = { energy: number; fun: number; hunger: number; social: number; updatedAt: number }
 
@@ -114,7 +106,9 @@ export type TokoMemo = { id: string; text: string; at: number; shownAt: number }
 
 export type TokoMeter = { contextPercent: number | null; costUsd: number | null; limitLabel: string | null; limitPercent: number | null; resetsAt: string | null }
 
-export type TokoFriend = { id: string; name: string; color: TokoColor; mood: TokoMood; status: string; lastSeen: number }
+export type TokoFriend = { id: string; name: string; species: TokoSpecies; mood: TokoMood; status: string; lastSeen: number }
+
+export type TokoVisitor = { name: string; species: TokoSpecies; kind: string; line: string; at: number }
 
 export type TokoPlazaView = {
   isOnline: boolean
@@ -126,6 +120,7 @@ declare module 'claude-code' {
   interface PluginState {
     toko: {
       pet: TokoPet | null
+      shelf: readonly TokoPet[]
       needs: TokoNeeds | null
       mood: TokoMood
       wallet: TokoWallet | null
@@ -137,6 +132,7 @@ declare module 'claude-code' {
       game: TokoGame | null
       countdown: TokoCountdown | null
       plaza: TokoPlazaView | null
+      visitor: TokoVisitor | null
       lessons: readonly string[]
       progress: TokoProgress | null
       focus: TokoFocus | null

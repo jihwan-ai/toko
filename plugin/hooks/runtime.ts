@@ -1,17 +1,17 @@
 import type { EngineInterface } from 'claude-code'
 
-import type { TokoChoice, TokoSettings } from '../types'
+import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, sync, think, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, drawPet, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, say, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, switchPet, sync, tendVisitor, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
-import { SHOP, shopItem } from './lib/economy'
+import { SHOP, SPEND, shopItem } from './lib/economy'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { signalLabel } from './lib/peers'
 import { nameProblem } from './lib/persona'
-import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
+import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf, rarityOf } from './lib/pet'
 import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
 import { findFriend } from './lib/plaza'
@@ -110,6 +110,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
       await think($, brain)
       await pollPlaza($, brain)
       await pollPeers($, brain)
+      await tendVisitor($, brain, TICK_MS * THINK_EVERY)
       await sync($, brain)
     }
     if (ctx.ticks % SAVE_EVERY === 0 && brain.isDirty) {
@@ -294,7 +295,7 @@ export async function permissionAsked($: $, ctx: Ctx): Promise<void> {
 }
 
 export const HELP = [
-  '/toko — 토코의 방 열기 (상점 · 꾸미기 · 광장)',
+  '/toko — 토코의 방 열기 (상점 · 꾸미기 · 펫 뽑기 · 광장)',
   '/toko mute | unmute — 말 걸기 끄기/켜기',
   '/toko hide | show — 띠 숨기기/보이기',
   '/toko quiet 22-09 | quiet off — 방해 금지 시간',
@@ -314,6 +315,8 @@ export const HELP = [
   '/toko memo [내용 | clear] — 생각 주차장 메모 (/memo <내용> 도 같음)',
   '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
+  `/toko draw — 펫 뽑기(${SPEND.draw}코인, 알부터 키워요)`,
+  '/toko pets | pick <번호|이름> — 보관함 보기 · 같이 다닐 펫 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
   '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
@@ -355,7 +358,7 @@ export const card = (brain: Brain): string => {
   }
   const traits = soul.traits
   return [
-    `**${nameOf(pet) ?? UNNAMED}** · ${STAGE_LABEL[pet.growth.stage]} · ${COLOR_LABEL[pet.bones.color]} · ${RARITY_LABEL[pet.bones.rarity]}`,
+    `**${nameOf(pet) ?? UNNAMED}** · ${STAGE_LABEL[pet.growth.stage]} · ${SPECIES[pet.bones.species].label} · ${RARITY_LABEL[rarityOf(pet.bones)]}`,
     `성격: ${soul.personality}`,
     `말버릇: ${soul.quirk}`,
     `성향: 활발 ${traits.energetic} · 수다 ${traits.chatty} · 걱정 ${traits.worried} · 장난 ${traits.playful}`,
@@ -377,6 +380,20 @@ const shopText = (brain: Brain): string =>
     `코인 ${balance(brain)}`,
   ].join('\n')
 
+const petLine = (pet: TokoPet): string =>
+  `${pet.soul === null ? '알' : (nameOf(pet) ?? UNNAMED)} · ${SPECIES[pet.bones.species].label} · ${RARITY_LABEL[rarityOf(pet.bones)]} · ${STAGE_LABEL[pet.growth.stage]}`
+
+const shelfText = (brain: Brain): string =>
+  [
+    brain.pet === null ? '같이 다니는 펫이 없어요.' : `같이 다니는 펫: ${petLine(brain.pet)}`,
+    ...(brain.shelf.length === 0 ? ['보관함이 비어 있어요. /toko draw 로 새 펫을 뽑아요.'] : ['보관함 (/toko pick <번호|이름>):', ...brain.shelf.map((pet, index) => `${index + 1}. ${petLine(pet)}`)]),
+  ].join('\n')
+
+const findShelved = (shelf: readonly TokoPet[], query: string): TokoPet | undefined => {
+  const index = Number(query)
+  return Number.isInteger(index) ? shelf[index - 1] : shelf.find(pet => pet.soul?.name === query)
+}
+
 const PLAZA_WORDS: Readonly<Record<string, PlazaAction>> = { wave: 'wave', heart: 'heart', snack: 'snack', cheer: 'cheer', invite: 'stretch-call' }
 
 async function plazaCommand($: $, brain: Brain, words: readonly string[]): Promise<{ text: string }> {
@@ -388,7 +405,7 @@ async function plazaCommand($: $, brain: Brain, words: readonly string[]): Promi
   }
   const action = sub === undefined ? undefined : PLAZA_WORDS[sub]
   if (action === undefined) {
-    const friends = brain.friends.map(friend => `- ${friend.name} (${COLOR_LABEL[friend.color]}, ${friend.status})`)
+    const friends = brain.friends.map(friend => `- ${friend.name} (${SPECIES[friend.species].label}, ${friend.status})`)
     const header = brain.serverUrl.length === 0 ? '광장 서버가 설정되지 않았어요(serverUrl).' : `광장: ${brain.settings.isPlazaOn ? '켜짐' : '꺼짐'} · 친구 ${brain.friends.length}명`
     return { text: [header, ...friends].join('\n') }
   }
@@ -511,6 +528,17 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       await namePet($, brain, name, line)
       return { text: `이름을 "${name}"(으)로 지었어요.` }
     }
+    case 'draw': {
+      const text = await drawPet($, brain)
+      await sync($, brain)
+      return { text }
+    }
+    case 'pets':
+      return { text: shelfText(brain) }
+    case 'pick': {
+      const pet = value === undefined ? undefined : findShelved(brain.shelf, rest.join(' '))
+      return { text: pet === undefined ? shelfText(brain) : await switchPet($, brain, pet.id) }
+    }
     case 'plaza':
       return plazaCommand($, brain, rest)
     case 'event': {
@@ -626,13 +654,24 @@ export async function buyItem($: $, ctx: Ctx, id: string): Promise<void> {
   await sync($, ctx.brain)
 }
 
+export async function drawFromRoom($: $, ctx: Ctx): Promise<void> {
+  await now($, ctx)
+  await drawPet($, ctx.brain)
+  await sync($, ctx.brain)
+}
+
+export async function pickPet($: $, ctx: Ctx, id: string): Promise<void> {
+  await now($, ctx)
+  await switchPet($, ctx.brain, id)
+}
+
 export async function wearItem($: $, ctx: Ctx, id: string): Promise<void> {
   await toggleWear($, ctx.brain, id)
 }
 
 export async function plazaAct($: $, ctx: Ctx, action: PlazaAction, to: string | null): Promise<void> {
   await now($, ctx)
-  await sendPlaza($, ctx.brain, action, to)
+  await say($, ctx.brain, await sendPlaza($, ctx.brain, action, to))
 }
 
 export async function gameMove($: $, ctx: Ctx, delta: number): Promise<void> {

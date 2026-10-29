@@ -6,7 +6,7 @@ export const CACHE_BONUS = 1.2
 
 export const HEALTH_REWARD = { breakAccepted: 15, eyeRestDone: 5, finishedOnTime: 20, breathDone: 5, plazaStretch: 10, focusDone: 10 } as const
 
-export const SPEND = { bonk: 3, bugTicket: 10 } as const
+export const SPEND = { bonk: 3, bugTicket: 10, draw: 200 } as const
 
 export type TurnUsage = {
   input_tokens: number

@@ -5,14 +5,16 @@ import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, r
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { bonkMessage, parseIntent, parseSoul, sanitizeLine } from '../hooks/lib/persona'
 import { freshSignal, signalLabel, signalText } from '../hooks/lib/peers'
-import { clampName, createBones, createFallbackSoul, nextStage } from '../hooks/lib/pet'
+import { SPECIES, SPECIES_IDS, clampName, createFallbackSoul, nextStage, rollSpecies } from '../hooks/lib/pet'
 import { parseSnapshot, plazaEndpoint } from '../hooks/lib/plaza'
 import type { Canvas } from '../hooks/lib/raster'
+import { createRandom } from '../hooks/lib/random'
 import { createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
 import type { Look, Step } from '../hooks/lib/scene'
 import { BAND_ROWS, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
 import { hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
+import { SPECIES_ART } from '../hooks/lib/sprites'
 
 const usage = (output: number, cacheRead = 0) => ({ input_tokens: 1000, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
 
@@ -62,7 +64,7 @@ test('the shop sells pets, and only one comes along at a time', async () => {
   expect(wornOf(swapped, 'pet')).toBe('kitten')
 })
 
-const LOOK: Look = { bones: { seed: 7, color: 'mint', pattern: 'plain', eyes: 'round', rarity: 'common' }, stage: 'baby', mood: 'calm', hammer: 'toy' }
+const LOOK: Look = { bones: { seed: 7, species: 'cat' }, stage: 'baby', mood: 'calm', hammer: 'toy' }
 const CHICK = hex('#FFDD44')
 const EYE = hex('#221122')
 
@@ -195,8 +197,13 @@ test('the perceiver reads tests and git from shell results', async () => {
   expect(failureStreak(events, 'npm test')).toBe(2)
 })
 
-test('the same seed always grows the same bones', async () => {
-  expect(createBones(42)).toEqual(createBones(42))
+test('a draw lands on a known species, rare about one time in ten', async () => {
+  const random = createRandom(42)
+  const rolls = Array.from({ length: 4000 }, () => rollSpecies(random))
+  expect(rolls.every(species => SPECIES_IDS.includes(species))).toBe(true)
+  const rare = rolls.filter(species => SPECIES[species].rarity === 'rare').length / rolls.length
+  expect(rare > 0.08 && rare < 0.12).toBe(true)
+  expect(SPECIES_IDS.filter(species => SPECIES[species].rarity === 'rare').every(species => rolls.includes(species))).toBe(true)
   expect(clampName('  말랑이는 귀여워 ')).toBe('말랑이는')
   expect(nextStage({ stage: 'baby', daysTogether: 3, breaksAccepted: 3, lastDay: '' })).toBe('child')
   expect(nextStage({ stage: 'baby', daysTogether: 30, breaksAccepted: 0, lastDay: '' })).toBe('baby')
@@ -228,18 +235,31 @@ test('cells encode half blocks: top pixel is the foreground, transparent is the 
   expect(toBase64(Uint8Array.of(1, 2, 3, 4))).toBe('AQIDBA==')
 })
 
+test('every species body fits the 16 by 14 pet frame', async () => {
+  for (const species of SPECIES_IDS) {
+    const body = SPECIES_ART[species].body
+    expect([species, body.length]).toEqual([species, 14])
+    expect(body.filter(row => row.length !== 16)).toEqual([])
+  }
+})
+
 test('plaza snapshots drop my own echo and anything malformed', async () => {
   const body = JSON.stringify({
     now: 5,
     friends: [
       { id: 'me', name: '나', color: 'mint', mood: 'calm', status: 'idle', lastSeen: 1 },
-      { id: 'f1', name: '콩떡', color: 'peach', mood: 'excited', status: 'working', lastSeen: 1 },
+      { id: 'f1', name: '콩떡', color: 'peach', species: 'fox', mood: 'excited', status: 'working', lastSeen: 1 },
+      { id: 'f3', name: '옛친구', color: 'mint', species: 'kraken', mood: 'calm', status: 'idle', lastSeen: 1 },
       { id: 'f2', name: '이상해', color: 'rainbow' },
     ],
     events: [{ id: 'e1', at: 1, kind: 'wave', from: { id: 'f1', name: '콩떡', color: 'peach' }, to: 'me', line: '안녕!' }],
   })
   const snapshot = parseSnapshot(body, 'me')
-  expect(snapshot?.friends.map(friend => friend.id)).toEqual(['f1'])
+  expect(snapshot?.friends.map(friend => [friend.id, friend.species])).toEqual([
+    ['f1', 'fox'],
+    ['f3', 'cat'],
+  ])
+  expect(snapshot?.events[0]?.from.species).toBe('cat')
   expect(snapshot?.events[0]?.line).toBe('안녕!')
   expect(parseSnapshot('not json', 'me')).toBe(null)
   expect(plazaEndpoint('https://plaza.example/', '/v1/poll')).toBe('https://plaza.example/v1/poll')
