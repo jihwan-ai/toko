@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import { BADGES, badgeViews, closestBadges, newBadges } from '../hooks/lib/badges'
 import { readEditLines } from '../hooks/lib/perceive'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from '../hooks/lib/stats'
 
@@ -41,4 +42,17 @@ test('edits count the lines a patch adds and removes, and a new file counts as a
   expect(readEditLines('Write', { type: 'create', content: 'a\nb\nc', structuredPatch: [] })).toEqual({ added: 3, removed: 0 })
   expect(readEditLines('Bash', patch)).toBe(null)
   expect(readEditLines('Edit', 'oops')).toBe(null)
+})
+
+test('badges unlock once a lifetime count reaches the goal, and never twice', async () => {
+  expect(newBadges({ break: 1 }, {}).map(badge => badge.id)).toEqual(['first-break'])
+  expect(newBadges({ break: 12, comeback: 1 }, { 'first-break': 1 }).map(badge => badge.id)).toEqual(['break-10', 'comeback'])
+  expect(newBadges({ break: 12 }, { 'first-break': 1, 'break-10': 2 })).toEqual([])
+  expect(BADGES.every(badge => badge.reward > 0 && badge.goal > 0)).toBe(true)
+})
+
+test('the closest locked badges come first', async () => {
+  const views = badgeViews({ break: 9, commit: 10, bug: 29 }, { 'first-break': 1 })
+  expect(views.find(view => view.id === 'first-break')?.at).toBe(1)
+  expect(closestBadges(views, 2).map(view => view.id)).toEqual(['bug-30', 'break-10'])
 })

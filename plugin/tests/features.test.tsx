@@ -24,11 +24,11 @@ const ROOM = {
   props: { title: '말랑의 방', isFocused: true, bodyColumns: 100, placement: 'dock', scroll: { offset: 0, bodyRows: 60 }, view: {} },
 } as const
 
-type World = { filled: string[]; copied: string[]; saved: Record<string, unknown>; deleted: string[] }
+type World = { filled: string[]; copied: string[]; saved: Record<string, unknown>; deleted: string[]; memory: Map<string, unknown> }
 
 const engine = (on: On, store: Record<string, unknown>): World => {
-  const world: World = { filled: [], copied: [], saved: {}, deleted: [] }
   const memory = new Map(Object.entries(store))
+  const world: World = { filled: [], copied: [], saved: {}, deleted: [], memory }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -85,9 +85,14 @@ const runTurn = async ($: Engine, clock: { advance: (ms: number) => Promise<void
   })
 }
 
-const shell = (on: On, outcome: { isError: boolean; text: string; gitOperation?: unknown }) => {
+type Shell = { isError: boolean; text: string; gitOperation?: unknown }
+
+const shell = (on: On, outcome: Shell): Shell => {
   on('tool.call', () => ({ result: { stdout: outcome.text, stderr: '', gitOperation: outcome.gitOperation }, isError: outcome.isError, text: outcome.text }) as never)
+  return outcome
 }
+
+const bash = async ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command } as never)
 
 test('a session keeps its day in a tally of its own, and the next session folds old days into the record', async ($, on) => {
   const clock = mock.clock(on, { now: START })
@@ -104,4 +109,39 @@ test('a session keeps its day in a tally of its own, and the next session folds 
   await runTurn($, clock)
   await end($)
   expect((world.saved['toko:tally:session-1'] as { counts: { turn: number } }).counts.turn).toBe(1)
+})
+
+test('a test that failed three times and then passes unlocks 역전승, pays coins and shows on the card and in the room', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  const outcome = shell(on, { isError: true, text: 'FAIL src/login.test.ts ✕ logs in' })
+  await begin($)
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await bash($, 'npm test')
+  }
+  outcome.isError = false
+  await bash($, 'npm test')
+  await clock.advance(2500)
+  expect((world.saved['toko:badges'] as Record<string, number>).comeback).toBeDefined()
+  expect((await $.command.run({ command: 'toko', args: 'badges' } as never)).text).toContain('✓ 역전승')
+  expect((await $.command.run({ command: 'toko', args: 'card' } as never)).text).toMatch(/업적 1\/\d+ · 최근: 역전승/)
+  const room = await $.ui.mount({ ...ROOM, surface: 'terminal' })
+  expect(await room.find({ type: 'Text', text: /✓ 역전승/ })).toBeDefined()
+  await room.unmount()
+  await end($)
+  expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(20)
+})
+
+test('a badge another terminal already unlocked is not paid twice', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  await $.command.run({ command: 'toko', args: 'event water' } as never)
+  world.memory.set('toko:badges', { 'first-break': START })
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'choice-accept' })
+  await clock.advance(2500)
+  await ui.unmount()
+  await end($)
+  expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(5)
 })

@@ -33,7 +33,7 @@ export const restore = (needs: TokoNeeds, change: Partial<Record<NeedKey, number
   updatedAt: needs.updatedAt,
 })
 
-const HAPPY_KINDS = new Set(['test-pass', 'commit', 'push', 'pr', 'gift', 'apologize', 'fed', 'played', 'break-done', 'friend-wave'])
+const HAPPY_KINDS = new Set(['test-pass', 'commit', 'push', 'pr', 'gift', 'apologize', 'fed', 'played', 'break-done', 'friend-wave', 'badge'])
 
 const isRecentFailure = (event: TokoMemoryEvent, now: number): boolean =>
   event.kind === 'test-fail' && now - event.at <= 10 * MINUTE

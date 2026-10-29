@@ -2,8 +2,9 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, purchase, reflect, refreshShared, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
+import { answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
 import type { Brain } from './brain'
+import { badgeText } from './lib/badges'
 import { SHOP, shopItem } from './lib/economy'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
@@ -281,6 +282,7 @@ export const HELP = [
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
   '/toko card — 펫 카드',
+  '/toko badges — 업적',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
   '/toko event <종류> — 이벤트 바로 보기(시연용)',
@@ -308,6 +310,13 @@ async function changeSettings($: $, brain: Brain, change: Partial<TokoSettings>,
   return { text: reply }
 }
 
+const badgeLine = (brain: Brain): string => {
+  const badges = progressOf(brain).badges
+  const unlocked = badges.filter(badge => badge.at !== null).sort((a, b) => (a.at ?? 0) - (b.at ?? 0))
+  const latest = unlocked.at(-1)
+  return `업적 ${unlocked.length}/${badges.length}${latest === undefined ? '' : ` · 최근: ${latest.name}`}`
+}
+
 export const card = (brain: Brain): string => {
   const pet = brain.pet
   const soul = pet?.soul
@@ -321,6 +330,7 @@ export const card = (brain: Brain): string => {
     `말버릇: ${soul.quirk}`,
     `성향: 활발 ${traits.energetic} · 수다 ${traits.chatty} · 걱정 ${traits.worried} · 장난 ${traits.playful}`,
     `함께한 날 ${pet.growth.daysTogether}일 · 받아들인 휴식 ${pet.growth.breaksAccepted}번 · 코인 ${balance(brain)}`,
+    badgeLine(brain),
     ...(brain.memory.lessons.length > 0 ? [`배운 것: ${brain.memory.lessons.at(-1)}`] : []),
   ].join('\n')
 }
@@ -431,6 +441,8 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: `${shopItem(value)?.name} 착용을 바꿨어요.` }
     case 'card':
       return { text: card(brain) }
+    case 'badges':
+      return { text: badgeText(progressOf(brain).badges) }
     case 'name': {
       if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
         return { text: '아직 알이에요. 깨어나면 이름을 지어 주세요.' }

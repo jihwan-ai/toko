@@ -4,6 +4,7 @@ import type { EngineInterface } from 'claude-code'
 import type {
   TokoBudget,
   TokoChoice,
+  TokoCounts,
   TokoEarn,
   TokoEarning,
   TokoFriend,
@@ -13,6 +14,7 @@ import type {
   TokoNeeds,
   TokoOffer,
   TokoPet,
+  TokoProgress,
   TokoSettings,
   TokoSoul,
   TokoStats,
@@ -21,6 +23,8 @@ import type {
 } from '../types'
 
 
+import { asUnlocked, badgeViews, newBadges } from './lib/badges'
+import type { Unlocked } from './lib/badges'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
 import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earnedTokenToday, emptyEarn, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
@@ -39,7 +43,7 @@ import type { Look, Scene, Step } from './lib/scene'
 import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook } from './lib/scene'
 import type { Candidate, OfferKind } from './lib/sim'
 import { BREAK_KINDS, ENCOUNTER_LINES, candidatesOf, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
-import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally } from './lib/stats'
+import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, totalOf } from './lib/stats'
 import type { StatKey } from './lib/stats'
 import { HOUR, MINUTE, clockText, dayKey, hourOf } from './lib/time'
 
@@ -56,6 +60,7 @@ const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 
 type $ = EngineInterface
 
@@ -71,6 +76,7 @@ export const KEY = {
   earnPrefix: 'toko:earn:',
   stats: 'toko:stats',
   tallyPrefix: 'toko:tally:',
+  badges: 'toko:badges',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -120,6 +126,7 @@ export type Brain = {
   stats: TokoStats
   isProgressDirty: boolean
   lastSharedAt: number
+  badges: Unlocked
   mood: TokoMood
   isLoaded: boolean
   isTurnRunning: boolean
@@ -173,6 +180,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   stats: emptyStats(),
   isProgressDirty: false,
   lastSharedAt: 0,
+  badges: {},
   mood: 'calm',
   isLoaded: false,
   isTurnRunning: false,
@@ -221,7 +229,7 @@ export const today = (brain: Brain): string => dayKey(brain.now)
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, keys] = await Promise.all([
+  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.needs),
     $.store.get(KEY.memory),
@@ -231,6 +239,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.marks),
     $.store.get(KEY.plazaId),
     $.store.get(KEY.stats),
+    $.store.get(KEY.badges),
     $.store.keys(),
   ])
   brain.pet = isPet(pet) ? { ...pet, growth: advanceDay(pet.growth, day) } : null
@@ -250,6 +259,8 @@ export async function load($: $, brain: Brain): Promise<void> {
   await settleTallies($, brain, stats, tallies, day)
   brain.tally = emptyTally(day)
   brain.lastSharedAt = now
+  brain.badges = asUnlocked(badges)
+  brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
   brain.mood = moodOf(brain.needs, brain.memory.events, now, hourOf(now), brain.budget.bonks)
@@ -303,6 +314,7 @@ export async function refreshShared($: $, brain: Brain): Promise<void> {
   const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.tallyPrefix) && key !== tallyKey(brain))
   const tallies = await Promise.all(keys.map(async key => asTally(await $.store.get(key))))
   brain.otherTallies = tallies.flatMap(tally => (tally !== null && tally.day === today(brain) ? [tally] : []))
+  brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
   brain.isProgressDirty = true
 }
 
@@ -315,6 +327,49 @@ export const count = (brain: Brain, key: StatKey, amount = 1): void => {
 const jot = (brain: Brain, text: string): void => {
   brain.tally = addNote(brain.tally, text)
   brain.isDirty = true
+}
+
+export const progressCounts = (brain: Brain): TokoCounts => totalOf(brain.stats, [...brain.otherTallies, brain.tally])
+
+export const progressOf = (brain: Brain): TokoProgress => ({ badges: badgeViews(progressCounts(brain), brain.badges) })
+
+async function awardBadges($: $, brain: Brain): Promise<readonly string[]> {
+  const earned = newBadges(progressCounts(brain), brain.badges)
+  if (earned.length === 0) {
+    return []
+  }
+  const stored = asUnlocked(await $.store.get(KEY.badges))
+  const fresh = earned.filter(badge => stored[badge.id] === undefined)
+  brain.badges = { ...stored, ...brain.badges, ...Object.fromEntries(fresh.map(badge => [badge.id, brain.now])) }
+  await $.store.set(KEY.badges, brain.badges)
+  if (fresh.length === 0) {
+    return []
+  }
+  const reward = fresh.reduce((sum, badge) => sum + badge.reward, 0)
+  const names = fresh.map(badge => badge.name).join(', ')
+  healthReward(brain, reward)
+  remember(brain, 'badge', names, 2)
+  return [`업적 달성: ${names}! +${reward} 코인`]
+}
+
+async function announce($: $, brain: Brain, phrases: readonly string[]): Promise<void> {
+  if (phrases.length === 0) {
+    return
+  }
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  if (!isQuietNow(brain.settings, hourOf(brain.now))) {
+    await say($, brain, phrases.join(' · '), 'quiet')
+  }
+}
+
+export async function checkProgress($: $, brain: Brain): Promise<void> {
+  if (!brain.isProgressDirty) {
+    return
+  }
+  brain.isProgressDirty = false
+  const phrases = await awardBadges($, brain)
+  await update($, progressAtom, () => progressOf(brain))
+  await announce($, brain, phrases)
 }
 
 export async function save($: $, brain: Brain): Promise<void> {
@@ -351,6 +406,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, countdownAtom, () => (brain.countdown === null ? null : { label: brain.countdown.label, endsAt: brain.countdown.endsAt })),
     update($, plazaAtom, () => ({ isOnline: brain.serverUrl.length > 0 && brain.settings.isPlazaOn, friends: brain.friends, feed: brain.feed })),
     update($, lessonsAtom, () => brain.memory.lessons),
+    update($, progressAtom, () => progressOf(brain)),
   ])
 }
 
@@ -1191,6 +1247,7 @@ export async function think($: $, brain: Brain): Promise<void> {
   await stepGame($, brain)
   await watchLongTurn($, brain)
   await maybeEncounter($, brain)
+  await checkProgress($, brain)
   if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || brain.bonk !== null) {
     return
   }

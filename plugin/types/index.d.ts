@@ -54,6 +54,10 @@ export type TokoTally = { day: string; counts: TokoCounts; notes: readonly strin
 
 export type TokoStats = { total: TokoCounts; days: readonly TokoTally[] }
 
+export type TokoBadge = { id: string; name: string; description: string; progress: number; goal: number; at: number | null }
+
+export type TokoProgress = { badges: readonly TokoBadge[] }
+
 export type TokoBudget = {
   day: string
   aiCalls: number
@@ -122,6 +126,7 @@ declare module 'claude-code' {
       countdown: TokoCountdown | null
       plaza: TokoPlazaView | null
       lessons: readonly string[]
+      progress: TokoProgress | null
     }
   }
 }

@@ -4,6 +4,7 @@ import type { Register } from 'claude-code'
 import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
+import { closestBadges } from './lib/badges'
 import { SHOP, shopItem } from './lib/economy'
 import { STAGE_LABEL, UNNAMED, nameOf } from './lib/pet'
 import { ACTION_LABEL } from './lib/plaza'
@@ -54,6 +55,7 @@ const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -248,7 +250,15 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, wallet, needs, mood, plaza, lessons] = await Promise.all([read($, petAtom), read($, walletAtom), read($, needsAtom), read($, moodAtom), read($, plazaAtom), read($, lessonsAtom)])
+    const [pet, wallet, needs, mood, plaza, lessons, progress] = await Promise.all([
+      read($, petAtom),
+      read($, walletAtom),
+      read($, needsAtom),
+      read($, moodAtom),
+      read($, plazaAtom),
+      read($, lessonsAtom),
+      read($, progressAtom),
+    ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(20, e.props.bodyColumns))
@@ -287,6 +297,26 @@ export const register: Register = (on, options) => {
           </Text>
           {lessons.length > 0 && <Text dimColor>배운 것: {lessons.at(-1)}</Text>}
         </Box>
+        {progress !== null && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              업적 {progress.badges.filter(badge => badge.at !== null).length}/{progress.badges.length}
+            </Text>
+            {progress.badges.some(badge => badge.at !== null) && (
+              <Text>
+                {progress.badges
+                  .filter(badge => badge.at !== null)
+                  .map(badge => `✓ ${badge.name}`)
+                  .join(' · ')}
+              </Text>
+            )}
+            <Text dimColor>
+              다음: {closestBadges(progress.badges)
+                .map(badge => `${badge.name} ${badge.progress}/${badge.goal}`)
+                .join(' · ')}
+            </Text>
+          </Box>
+        )}
         <Box flexDirection="column">
           <Text weight="bold">상점</Text>
           <Box flexWrap="wrap" gap={1}>
