@@ -148,6 +148,24 @@ export const NECKS: Readonly<Record<string, { grid: Grid; dx: number; dy: number
   scarf: { grid: ['.RRRRRRRRRRRR.', '..RRrr....RRR.', '..........RR..'], dx: 1, dy: 12 },
 }
 
+export const CRITTERS: Readonly<Record<string, { stand: Grid; step: Grid; fur: string }>> = {
+  chick: {
+    stand: ['..oo...', '.oyyo..', 'oyyyeyG', 'oggyyyo', 'ogyyyyo', '.oooo..', '.G..G..'],
+    step: ['..oo...', '.oyyo..', 'oyyyeyG', 'oggyyyo', 'ogyyyyo', '.oooo..', 'G....G.'],
+    fur: 'y',
+  },
+  hamster: {
+    stand: ['....Gq..', '.oooGGoo', 'oGGGGGeo', 'oGGGGGsk', 'osssssso', '.oooooo.', '.k...k..'],
+    step: ['....Gq..', '.oooGGoo', 'oGGGGGeo', 'oGGGGGsk', 'osssssso', '.oooooo.', 'k.....k.'],
+    fur: 'G',
+  },
+  kitten: {
+    stand: ['....a..a', 'a...oAAo', 'a.ooAAeo', '.aAAAAAk', '.oAaAaAo', '..oooooo', '..a...a.'],
+    step: ['....a..a', 'a...oAAo', 'a.ooAAeo', '.aAAAAAk', '.oAaAaAo', '..oooooo', '.a.....a'],
+    fur: 'A',
+  },
+}
+
 export const ROOM_PROPS: Readonly<Record<string, Grid>> = {
   plant: ['.nn.n', 'n.Nnn', '.nNn.', '.ttt.', '.ttt.'],
   lamp: ['.yyy.', 'yYYYy', '.yyy.', '..h..', '..h..', '.hhh.'],

@@ -311,6 +311,29 @@ test('the room pane draws the pet card, the shop and the plaza', async ($, on) =
   }
 })
 
+test('a pet bought in the room gets its own shop row and comes along one at a time', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 200, items: [], worn: [] } })
+  await begin($)
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const ui = await $.ui.mount({
+    plugin: 'toko',
+    component: 'Pane',
+    requestId: 'toko-room',
+    surface: 'terminal',
+    props: { title: '말랑의 방', isFocused: true, bodyColumns: 90, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  })
+  expect(await ui.find({ type: 'Text', text: /애완동물/ })).toBeDefined()
+  await ui.press({ key: 'buy-chick' })
+  await clock.advance(100)
+  await ui.press({ key: 'buy-hamster' })
+  await clock.advance(100)
+  expect(await ui.find({ type: 'Button', key: 'wear-chick' })).toBeDefined()
+  expect((world.saved['toko:wallet'] as { worn: string[] }).worn).toEqual(['hamster'])
+  expect((await $.command.run({ command: 'toko', args: 'shop' } as never)).text).toContain('애완동물:\n- chick · 병아리 · 60코인 (보유)')
+  await ui.unmount()
+})
+
 test('the plaza polls the server and a friend’s wave reaches the pet', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
   const clock = mock.clock(on, { now: START })
   engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })

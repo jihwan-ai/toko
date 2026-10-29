@@ -1,13 +1,17 @@
 import { expect, test } from 'claude-code/testing'
 
-import { DAILY_TOKEN_CAP, balanceOf, buy, capTokenIncome, emptyEarn, turnIncome, wear } from '../hooks/lib/economy'
+import { DAILY_TOKEN_CAP, SHOP, balanceOf, buy, capTokenIncome, emptyEarn, turnIncome, wear, wornOf } from '../hooks/lib/economy'
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { bonkMessage, parseIntent, parseSoul, sanitizeLine } from '../hooks/lib/persona'
 import { freshSignal, signalLabel, signalText } from '../hooks/lib/peers'
 import { clampName, createBones, createFallbackSoul, nextStage } from '../hooks/lib/pet'
 import { parseSnapshot, plazaEndpoint } from '../hooks/lib/plaza'
+import type { Canvas } from '../hooks/lib/raster'
 import { createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
+import type { Look, Step } from '../hooks/lib/scene'
+import { BAND_ROWS, createScene, paint, paintRoom, tick } from '../hooks/lib/scene'
+import { hex } from '../hooks/lib/sprites'
 import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hooks/lib/sim'
 
 const usage = (output: number, cacheRead = 0) => ({ input_tokens: 1000, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
@@ -48,6 +52,59 @@ test('the shop sells, refuses a second hat and swaps worn hats', async () => {
   const withCrown = { ...bought.wallet, items: [...bought.wallet.items, 'crown'] }
   const worn = wear(wear(withCrown, 'beanie'), 'crown')
   expect(worn.worn).toEqual(['crown'])
+})
+
+test('the shop sells pets, and only one comes along at a time', async () => {
+  expect(SHOP.filter(item => item.kind === 'pet').map(item => item.id)).toEqual(['chick', 'hamster', 'kitten'])
+  const wallet = { coins: 0, items: ['beanie', 'chick', 'kitten'], worn: ['beanie'] }
+  const swapped = wear(wear(wallet, 'chick'), 'kitten')
+  expect(swapped.worn).toEqual(['beanie', 'kitten'])
+  expect(wornOf(swapped, 'pet')).toBe('kitten')
+})
+
+const LOOK: Look = { bones: { seed: 7, color: 'mint', pattern: 'plain', eyes: 'round', rarity: 'common' }, stage: 'baby', mood: 'calm', hammer: 'toy' }
+const CHICK = hex('#FFDD44')
+const EYE = hex('#221122')
+
+const colorsIn = (canvas: Canvas, fromX: number, toX: number): Set<number> => {
+  const colors = new Set<number>()
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = Math.max(0, fromX); x < Math.min(canvas.width, toX); x += 1) {
+      colors.add(canvas.pixels[y * canvas.width + x] ?? 0)
+    }
+  }
+  return colors
+}
+
+const run = (look: Look, plan: readonly Step[], ms: number) => {
+  const scene = createScene(100, look, () => [...plan])
+  for (let at = 0; at < ms; at += 100) {
+    tick(scene, 100, () => 0.5)
+  }
+  const canvas = createCanvas(100, BAND_ROWS)
+  paint(scene, canvas)
+  return { scene, canvas }
+}
+
+test('a pet from the shop trails behind toko on the ground, and naps when toko naps', async () => {
+  const plan: Step[] = [{ pose: 'walk', ms: 0, toX: 70 }, { pose: 'sleep', ms: 60_000 }]
+  expect(colorsIn(run(LOOK, plan, 2000).canvas, 0, 100).has(CHICK)).toBe(false)
+  const walking = run({ ...LOOK, critter: 'chick' }, plan, 2000)
+  const behind = Math.round(walking.scene.x)
+  expect(colorsIn(walking.canvas, behind - 12, behind).has(CHICK)).toBe(true)
+  expect(colorsIn(walking.canvas, behind - 12, behind).has(EYE)).toBe(true)
+  expect(colorsIn(walking.canvas, behind + 16, 100).has(CHICK)).toBe(false)
+  const napping = run({ ...LOOK, critter: 'chick' }, plan, 10_000)
+  expect(napping.scene.current?.pose).toBe('sleep')
+  expect(colorsIn(napping.canvas, 70 - 12, 70).has(CHICK)).toBe(true)
+  expect(colorsIn(napping.canvas, 70 - 12, 70).has(EYE)).toBe(false)
+})
+
+test('the room shows the pet beside toko', async () => {
+  const scene = createScene(100, { ...LOOK, critter: 'chick' }, () => [{ pose: 'idle', ms: 1000 }])
+  const canvas = createCanvas(100, 18)
+  paintRoom(scene, canvas, [])
+  expect(colorsIn(canvas, 50 + 16, 100).has(CHICK)).toBe(true)
 })
 
 test('the gate holds its tongue while Claude works, while typing, and past the hourly cap', async () => {
