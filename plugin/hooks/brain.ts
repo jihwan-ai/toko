@@ -1680,7 +1680,7 @@ export async function pollPeers($: $, brain: Brain): Promise<void> {
     return
   }
   brain.peersSeenAt = signal.at
-  if (!brain.settings.isPeersOn || isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!brain.settings.isPeersOn || isHushed(brain)) {
     return
   }
   await say($, brain, signalText(signal))
