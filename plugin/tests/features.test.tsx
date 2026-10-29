@@ -92,10 +92,10 @@ const runTurn = async ($: Engine, clock: { advance: (ms: number) => Promise<void
   })
 }
 
-type Shell = { isError: boolean; text: string; gitOperation?: unknown }
+type Shell = { isError: boolean; text: string; gitOperation?: unknown; result?: unknown }
 
 const shell = (on: On, outcome: Shell): Shell => {
-  on('tool.call', () => ({ result: { stdout: outcome.text, stderr: '', gitOperation: outcome.gitOperation }, isError: outcome.isError, text: outcome.text }) as never)
+  on('tool.call', () => ({ result: outcome.result ?? { stdout: outcome.text, stderr: '', gitOperation: outcome.gitOperation }, isError: outcome.isError, text: outcome.text }) as never)
   return outcome
 }
 
@@ -348,4 +348,32 @@ test('/toko memo lists memos, the room puts one in the prompt or drops it, and c
   await room.unmount()
   expect((await $.command.run({ command: 'toko', args: 'memo clear' } as never)).text).toContain('모두 지웠어요')
   expect(world.saved['toko:memos']).toEqual([])
+})
+
+test('/toko today sums up every terminal’s day and copies it, and the room button copies it too', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:tally:other': { day: '2026-10-29', counts: { commit: 2 }, notes: ['PR #7 merged'], costUsd: 0.5 } })
+  on('session.usage', () => ({ value: { startedAt: START, context: { window: 1 }, rateLimits: [], cost: { usd: 0 } } }))
+  const outcome = shell(on, { isError: false, text: 'ok', gitOperation: { commit: { sha: 'abc1234def', kind: 'committed', branch: 'main' } } })
+  await begin($)
+  await bash($, 'git commit -m one')
+  outcome.gitOperation = undefined
+  await bash($, 'npm test')
+  outcome.result = { structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, lines: ['+a', '+b', '-c'] }] }
+  await $.tool.call({ tool: 'Edit', file_path: '/work/a.ts', old_string: 'c', new_string: 'a\nb' } as never)
+  await runTurn($, clock)
+  await $.session.measure({ context: { window: 1 }, rateLimits: [], cost: { usd: 1.25 }, changed: ['cost'] } as never)
+  const text = (await $.command.run({ command: 'toko', args: 'today' } as never)).text ?? ''
+  expect(text).toContain('- 커밋 3번')
+  expect(text).toContain('- PR #7 merged')
+  expect(text).toContain('- 테스트 통과 1번')
+  expect(text).toContain('- 코드 +2 / -1줄')
+  expect(text).toContain('- Claude 턴 1번 · 비용 $1.75')
+  expect(text).toContain('클립보드에 복사했어요')
+  expect(world.copied).toEqual([text.split('\n\n')[0]])
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const room = await $.ui.mount({ ...ROOM, surface: 'terminal' })
+  await room.press({ key: 'today-copy' })
+  await room.unmount()
+  expect(world.copied.length).toBe(2)
 })

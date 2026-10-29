@@ -348,8 +348,8 @@ async function rollTally($: $, brain: Brain, day: string): Promise<void> {
   await $.store.set(tallyKey(brain), brain.tally)
 }
 
-export async function refreshShared($: $, brain: Brain): Promise<void> {
-  if (brain.now - brain.lastSharedAt < SHARED_REFRESH_MS) {
+export async function refreshShared($: $, brain: Brain, isForced = false): Promise<void> {
+  if (!isForced && brain.now - brain.lastSharedAt < SHARED_REFRESH_MS) {
     return
   }
   brain.lastSharedAt = brain.now
@@ -378,11 +378,13 @@ const jot = (brain: Brain, text: string): void => {
 
 export const progressCounts = (brain: Brain): TokoCounts => ({ ...totalOf(brain.stats, [...brain.otherTallies, brain.tally]), dex: kindsSeen(brain.dex) })
 
+export const todayTally = (brain: Brain): TokoTally => todayOf(brain.stats, [...brain.otherTallies, brain.tally], today(brain))
+
 export const questsOf = (brain: Brain) => questsFor(today(brain), brain.pet?.bones.seed ?? 0, isPlazaReady(brain))
 
 export const progressOf = (brain: Brain): TokoProgress => ({
   badges: badgeViews(progressCounts(brain), brain.badges),
-  quests: questViews(questsOf(brain), todayOf(brain.stats, [...brain.otherTallies, brain.tally], today(brain)).counts),
+  quests: questViews(questsOf(brain), todayTally(brain).counts),
   dex: dexViews(brain.dex),
 })
 

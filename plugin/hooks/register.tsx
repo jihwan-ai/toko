@@ -39,6 +39,7 @@ import {
   start,
   stop,
   submitted,
+  todayCommand,
   tokoCommand,
   toolRan,
   turnEnded,
@@ -348,6 +349,13 @@ export const register: Register = (on, options) => {
               <Button key="focus-stop" label="그만하기" onPress={press(() => focusCommand($, ctx, 'off'))} />
             </Box>
           )}
+        </Box>
+        <Box flexDirection="column">
+          <Text weight="bold">오늘 기록</Text>
+          <Box gap={1}>
+            <Button key="today-copy" label="오늘 기록 복사" onPress={press(() => todayCommand($, ctx))} />
+            <Text dimColor>커밋·PR·테스트·휴식·비용을 몇 줄로 정리해 클립보드에 넣어요</Text>
+          </Box>
         </Box>
         {memos.length > 0 && (
           <Box flexDirection="column">

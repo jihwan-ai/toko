@@ -7,6 +7,7 @@ import { meterLevel, meterOf, meterText } from '../hooks/lib/meter'
 import { readEditLines } from '../hooks/lib/perceive'
 import { ALL_DONE, questViews, questsDue, questsFor } from '../hooks/lib/quests'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from '../hooks/lib/stats'
+import { todayText } from '../hooks/lib/today'
 
 test('a tally folds into the record by day and into the lifetime total', async () => {
   const monday = bump(bump(emptyTally('2026-10-26'), 'commit', 2), 'break')
@@ -122,4 +123,25 @@ test('memos are tidied and capped, and come back after the turn they were parked
   expect(dueMemo(later, 130_000, 80_000)).toBeUndefined()
   expect(dueMemo(later, 70_000 + 30 * 60_000, 80_000)?.id).toBe('a')
   expect(dropMemo(one, 'a')).toEqual([])
+})
+
+test('the day sums up in a few lines, skipping what did not happen and keeping each PR once', async () => {
+  const afternoon = new Date(2026, 9, 29, 14, 0).getTime()
+  const tally = {
+    day: '2026-10-29',
+    counts: { commit: 5, push: 2, merge: 1, 'test-pass': 7, 'test-fail': 3, added: 420, removed: 133, turn: 34, break: 4, focus: 2 },
+    notes: ['PR #12 created', 'PR #15 created', 'PR #12 merged'],
+    costUsd: 4.123,
+  }
+  expect(todayText(tally, afternoon, 1).split('\n')).toEqual([
+    '10월 29일 (목) 토코 기록',
+    '- 커밋 5번 · 푸시 2번 · PR 머지 1번',
+    '- PR #15 created, #12 merged',
+    '- 테스트 통과 7번 · 실패 3번',
+    '- 코드 +420 / -133줄',
+    '- Claude 턴 34번 · 비용 $4.12',
+    '- 휴식 4번 · 집중 2번',
+    '- 남은 메모 1개',
+  ])
+  expect(todayText(emptyTally('2026-10-29'), afternoon, 0)).toBe('10월 29일 (목) 토코 기록\n- 아직 남은 기록이 없어요')
 })

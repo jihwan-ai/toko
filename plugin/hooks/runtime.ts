@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, fillMemo, forgetMemo, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, fillMemo, forgetMemo, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -21,6 +21,7 @@ import type { Canvas } from './lib/raster'
 import { createCanvas, encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, tick } from './lib/scene'
 import { MINUTE } from './lib/time'
+import { todayText } from './lib/today'
 import type { TurnUsage } from './lib/economy'
 
 type $ = EngineInterface
@@ -299,6 +300,7 @@ export const HELP = [
   '/toko badges — 업적',
   '/toko dex — 인카운터 도감',
   '/toko memo [내용 | clear] — 생각 주차장 메모 (/memo <내용> 도 같음)',
+  '/toko today — 오늘 한 일 요약을 클립보드에 복사',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
   '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용)',
@@ -473,6 +475,8 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: dexText(progressOf(brain).dex) }
     case 'memo':
       return { text: await memoCommand($, ctx, rest.join(' ')) }
+    case 'today':
+      return { text: await todayCommand($, ctx) }
     case 'name': {
       if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
         return { text: '아직 알이에요. 깨어나면 이름을 지어 주세요.' }
@@ -501,6 +505,15 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
     default:
       return { text: HELP }
   }
+}
+
+export async function todayCommand($: $, ctx: Ctx): Promise<string> {
+  await now($, ctx)
+  const brain = ctx.brain
+  await refreshShared($, brain, true)
+  const summary = todayText(todayTally(brain), brain.now, brain.memos.length)
+  const copied = await $.ui.copy({ text: summary }).catch(() => ({ isCopied: false as const, reason: 'refused' as const }))
+  return `${summary}\n\n${copied.isCopied ? '클립보드에 복사했어요.' : `클립보드에 복사하지 못했어요(${copied.reason}). 위 글을 그대로 쓰세요.`}`
 }
 
 export async function memoCommand($: $, ctx: Ctx, args: string): Promise<string> {
