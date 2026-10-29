@@ -1,0 +1,339 @@
+import { atom, read } from 'claude-code'
+import type { Register } from 'claude-code'
+
+import type { TokoMood } from '../types'
+
+import { ensureScene } from './brain'
+import { SHOP, shopItem } from './lib/economy'
+import { STAGE_LABEL } from './lib/pet'
+import { ACTION_LABEL } from './lib/plaza'
+import { encodeCells } from './lib/raster'
+import { BAND_ROWS, paint, paintRoom, resize } from './lib/scene'
+import { KAOMOJI } from './lib/sprites'
+import {
+  ROOM_ID,
+  ROOM_KEY,
+  ROOM_ROWS,
+  SCENE_KEY,
+  apologized,
+  attention,
+  bonkCommand,
+  buyItem,
+  choose,
+  createCtx,
+  feedCommand,
+  gameCatch,
+  gameMove,
+  measured,
+  petStatus,
+  playCommand,
+  plazaAct,
+  roomOpenedFromBand,
+  siteFor,
+  start,
+  stop,
+  submitted,
+  tokoCommand,
+  toolRan,
+  turnEnded,
+  turnStarted,
+  typing,
+  wearItem,
+} from './runtime'
+
+const petAtom = atom({ plugin: 'toko', key: 'pet' } as const, null)
+const needsAtom = atom({ plugin: 'toko', key: 'needs' } as const, null)
+const moodAtom = atom({ plugin: 'toko', key: 'mood' } as const, 'calm')
+const walletAtom = atom({ plugin: 'toko', key: 'wallet' } as const, null)
+const settingsAtom = atom({ plugin: 'toko', key: 'settings' } as const, null)
+const bubbleAtom = atom({ plugin: 'toko', key: 'bubble' } as const, null)
+const offerAtom = atom({ plugin: 'toko', key: 'offer' } as const, null)
+const ouchAtom = atom({ plugin: 'toko', key: 'ouch' } as const, false)
+const earningsAtom = atom({ plugin: 'toko', key: 'earnings' } as const, [])
+const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
+const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
+const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
+const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+
+const MIN_PIXEL_COLUMNS = 60
+const BAND_TREE_ROWS = BAND_ROWS + 3
+
+const displayWidth = (text: string): number => [...text].reduce((width, char) => width + ((char.codePointAt(0) ?? 0) >= 0x1100 ? 2 : 1), 0)
+
+const MOOD_LABEL: Readonly<Record<TokoMood, string>> = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
+
+const press = (fn: () => Promise<unknown>) => () => {
+  void fn()
+}
+
+const bar = (value: number): string => `${'█'.repeat(Math.round(value / 10))}${'░'.repeat(10 - Math.round(value / 10))}`
+
+export const register: Register = (on, options) => {
+  const ctx = createCtx(typeof options.serverUrl === 'string' ? options.serverUrl : '')
+
+  on('session.start', async ($, e, next) => {
+    const result = await next(e)
+    await start($, ctx)
+    return result
+  })
+
+  on('session.end', async ($, e, next) => {
+    await stop($, ctx, e.reason)
+    return next(e)
+  })
+
+  on('prompt.edit', async ($, e, next) => {
+    await typing($, ctx)
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    await submitted($, ctx, e.text, e.origin.kind === 'composer' && e.command === undefined && e.isMeta !== true)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      await turnStarted($, ctx)
+    }
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined) {
+      await turnEnded($, ctx, e.durationMs, e.reason, e.usage)
+    }
+    return result
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const ran = await next(e)
+    if (ran.deny === undefined) {
+      const command = e.tool === 'Bash' ? e.command : undefined
+      await toolRan($, ctx, String(e.tool), command, ran.isError === true, ran.text ?? '', ran.result)
+    }
+    return ran
+  }).catch(($, e, next) => next(e))
+
+  on('tool.call', { tool: 'mcp__toko__pet_status' }, async $ => ({ result: await petStatus($, ctx) })).catch(() => ({ result: 'Toko is napping right now.' }))
+
+  on('tool.call', { tool: 'mcp__toko__apologize' }, async $ => ({ result: await apologized($, ctx) })).catch(() => ({ result: 'Toko heard the apology.' }))
+
+  on('session.measure', async ($, e, next) => {
+    await measured($, ctx, e.context.percent, e.rateLimits)
+    return next(e)
+  })
+
+  on('classic.Notification', async ($, e, next) => {
+    if (e.notification_type === 'permission_prompt' || e.notification_type === 'idle_prompt') {
+      await attention($, ctx)
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('classic.PermissionRequest', async ($, e, next) => {
+    await attention($, ctx)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('command.run', { command: 'toko' }, async ($, e) => tokoCommand($, ctx, e.args))
+
+  on('command.run', { command: 'bonk' }, async ($, e) => bonkCommand($, ctx, e.args))
+
+  on('command.run', { command: 'feed' }, async $ => ({ text: await feedCommand($, ctx) }))
+
+  on('command.run', { command: 'play' }, async $ => ({ text: await playCommand($, ctx) }))
+
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const [settings, offer, pet] = await Promise.all([read($, settingsAtom), read($, offerAtom), read($, petAtom)])
+    if (e.props.hasSurvey || pet === null || (settings?.isHidden === true && offer === null)) {
+      ctx.band = null
+      return next(e)
+    }
+    const [mood, bubble, wallet, countdown, game] = await Promise.all([read($, moodAtom), read($, bubbleAtom), read($, walletAtom), read($, countdownAtom), read($, gameAtom)])
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const brain = ctx.brain
+    const columns = Math.min(512, Math.max(1, e.props.bodyColumns))
+    const isLine = brain.isLineMode || e.surface !== 'terminal' || columns < MIN_PIXEL_COLUMNS || e.props.maxRows < BAND_TREE_ROWS
+    const seconds = (until: number): number => Math.max(0, Math.ceil((until - brain.now) / 1000))
+    const status = [
+      `${pet.soul?.name ?? '알'} ${KAOMOJI[mood]}`,
+      pet.growth.stage === 'egg' ? '부화 중' : MOOD_LABEL[mood],
+      `코인 ${wallet?.coins ?? 0}`,
+      ...(countdown === null ? [] : [`${countdown.label} ${seconds(countdown.endsAt)}초`]),
+      ...(game === null ? [] : [`벌레 ${game.caught}마리 · ${seconds(game.endsAt)}초`]),
+    ].join(' · ')
+    const buttons =
+      game !== null
+        ? [
+            <Button key="left" label="◀" hotkey="a" onPress={press(() => gameMove($, ctx, -8))} />,
+            <Button key="catch" label="잡기" hotkey="s" variant="primary" onPress={press(() => gameCatch($, ctx))} />,
+            <Button key="right" label="▶" hotkey="d" onPress={press(() => gameMove($, ctx, 8))} />,
+          ]
+        : offer !== null
+          ? offer.choices.map(choice => (
+              <Button
+                key={`choice-${choice.key}`}
+                label={choice.label}
+                hotkey={choice.hotkey}
+                variant={choice.key === 'accept' || choice.key === 'breathe' ? 'primary' : 'secondary'}
+                onPress={press(() => choose($, ctx, choice))}
+              />
+            ))
+          : [
+              <Button key="feed" label="먹이" hotkey="f" onPress={press(() => feedCommand($, ctx))} />,
+              <Button key="play" label="놀기" hotkey="p" onPress={press(() => playCommand($, ctx))} />,
+              <Button key="room" label="방" hotkey="r" onPress={press(() => roomOpenedFromBand($, ctx))} />,
+            ]
+    if (isLine) {
+      ctx.band = null
+      return (
+        <Box flexDirection="column">
+          <Text wrap="truncate-end">
+            {status}
+            <Text dimColor>{bubble === null ? '' : ` “${bubble.text}”`}</Text>
+          </Text>
+          <Box gap={1}>{buttons}</Box>
+        </Box>
+      )
+    }
+    const scene = ensureScene(brain, columns)
+    resize(scene, columns)
+    const band = siteFor(ctx.band, e.requestId, columns, BAND_ROWS)
+    ctx.band = band
+    paint(scene, band.canvas)
+    band.lastCells = encodeCells(band.canvas)
+    const { Raster } = $.ui.resolve({ ...e, surface: 'terminal' as const })
+    const said = bubble === null ? '' : `“${bubble.text}”`
+    const indent = Math.max(0, Math.min(columns - displayWidth(said), Math.round(scene.x + 8 - displayWidth(said) / 2)))
+    return (
+      <Box flexDirection="column">
+        <Text dimColor wrap="truncate-end">
+          {status}
+        </Text>
+        <Text dimColor={bubble?.tone === 'quiet'} wrap="truncate-end">
+          {`${' '.repeat(indent)}${said}`}
+        </Text>
+        <Raster key={SCENE_KEY} columns={columns} rows={BAND_ROWS} cells={band.lastCells} />
+        <Box gap={1}>{buttons}</Box>
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => ((await read($, ouchAtom)) ? next({ ...e, props: { ...e.props, message: '아야…' } }) : next(e)))
+
+  on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
+    const earnings = await read($, earningsAtom)
+    const drawn = await next(e)
+    const match = [...earnings].reverse().find(earning => Math.abs(earning.durationMs - e.props.durationMs) < 1500 && earning.coins > 0)
+    if (e.props.isExpanded === true || match === undefined) {
+      return drawn
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box>
+        {drawn}
+        <Text color="yellow"> +{match.coins} 코인</Text>
+      </Box>
+    )
+  })
+
+  on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
+    const [settings, pet, mood, wallet] = await Promise.all([read($, settingsAtom), read($, petAtom), read($, moodAtom), read($, walletAtom)])
+    if (pet === null || pet.soul === null || (settings?.isHidden !== true && !ctx.brain.isLineMode)) {
+      return next(e)
+    }
+    return next({ ...e, props: { ...e.props, tail: `${pet.soul.name} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c` } })
+  })
+
+  on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
+    const [pet, wallet, needs, mood, plaza, lessons] = await Promise.all([read($, petAtom), read($, walletAtom), read($, needsAtom), read($, moodAtom), read($, plazaAtom), read($, lessonsAtom)])
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const brain = ctx.brain
+    const columns = Math.min(512, Math.max(20, e.props.bodyColumns))
+    const soul = pet?.soul
+    const items = wallet?.items ?? []
+    const worn = wallet?.worn ?? []
+    const hasPicture = e.surface === 'terminal' && brain.scene !== null && !brain.isLineMode
+    if (hasPicture && brain.scene !== null) {
+      const site = siteFor(ctx.room, e.requestId, columns, ROOM_ROWS)
+      ctx.room = site
+      paintRoom(brain.scene, site.canvas, items)
+      site.lastCells = encodeCells(site.canvas)
+    } else {
+      ctx.room = null
+    }
+    const { Raster } = $.ui.resolve({ ...e, surface: 'terminal' as const })
+    const owned = SHOP.filter(item => item.kind !== 'snack' && items.includes(item.id))
+    const snacks = items.filter(id => shopItem(id)?.kind === 'snack').length
+    return (
+      <Box flexDirection="column" gap={1}>
+        {hasPicture && ctx.room !== null && <Raster key={ROOM_KEY} columns={columns} rows={ROOM_ROWS} cells={ctx.room.lastCells} />}
+        <Box flexDirection="column">
+          <Text weight="bold">{soul === null || soul === undefined ? '알' : `${soul.name} · ${STAGE_LABEL[pet?.growth.stage ?? 'baby']} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
+          {soul !== null && soul !== undefined && (
+            <Text dimColor>
+              {soul.personality} — {soul.quirk}
+            </Text>
+          )}
+          {needs !== null && (
+            <Text>
+              기운 {bar(needs.energy)} 재미 {bar(needs.fun)} 배부름 {bar(needs.hunger)} 교감 {bar(needs.social)}
+            </Text>
+          )}
+          <Text>
+            코인 {wallet?.coins ?? 0} · 간식 {snacks}개 · 함께한 날 {pet?.growth.daysTogether ?? 0}일 · 휴식 {pet?.growth.breaksAccepted ?? 0}번
+          </Text>
+          {lessons.length > 0 && <Text dimColor>배운 것: {lessons.at(-1)}</Text>}
+        </Box>
+        <Box flexDirection="column">
+          <Text weight="bold">상점</Text>
+          <Box flexWrap="wrap" gap={1}>
+            {SHOP.map(item => (
+              <Button key={`buy-${item.id}`} onPress={press(() => buyItem($, ctx, item.id))}>
+                {item.name} <Text dimColor>{String(item.price)}</Text>
+              </Button>
+            ))}
+          </Box>
+        </Box>
+        {owned.length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">꾸미기</Text>
+            <Box flexWrap="wrap" gap={1}>
+              {owned.map(item => (
+                <Button key={`wear-${item.id}`} onPress={press(() => wearItem($, ctx, item.id))}>
+                  {`${worn.includes(item.id) ? '✓ ' : ''}${item.name}`}
+                </Button>
+              ))}
+            </Box>
+          </Box>
+        )}
+        <Box flexDirection="column">
+          <Text weight="bold">{plaza?.isOnline === true ? `광장 · 친구 ${plaza.friends.length}명` : '광장 · 오프라인'}</Text>
+          {(plaza?.friends ?? []).slice(0, 6).map(friend => (
+            <Box key={`friend-${friend.id}`} gap={1}>
+              <Text>
+                {friend.name} <Text dimColor>({friend.status})</Text>
+              </Text>
+              {(['wave', 'heart', 'snack'] as const).map(action => (
+                <Button key={`${action}-${friend.id}`} label={ACTION_LABEL[action]} onPress={press(() => plazaAct($, ctx, action, friend.id))} />
+              ))}
+            </Box>
+          ))}
+          {plaza?.isOnline === true && <Button key="invite" label="다 같이 기지개 부르기" onPress={press(() => plazaAct($, ctx, 'stretch-call', null))} />}
+          {(plaza?.feed ?? []).slice(-3).map(entry => (
+            <Text dimColor>{entry.text}</Text>
+          ))}
+        </Box>
+      </Box>
+    )
+  })
+
+  on('ui.close', async ($, e, next) => {
+    if (e.id === ROOM_ID) {
+      ctx.room = null
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+}

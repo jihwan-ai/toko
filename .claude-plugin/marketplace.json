@@ -1,0 +1,18 @@
+{
+  "name": "toko",
+  "owner": {
+    "name": "junghyeon95"
+  },
+  "metadata": {
+    "description": "Toko, a pixel companion that lives above your Claude Code prompt and helps you rest between turns"
+  },
+  "plugins": [
+    {
+      "name": "toko",
+      "source": "./plugin",
+      "description": "A pixel companion that lives above your Claude Code prompt and helps you rest between turns",
+      "version": "0.1.2",
+      "license": "MIT"
+    }
+  ]
+}

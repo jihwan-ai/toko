@@ -1,0 +1,26 @@
+{
+  "name": "toko",
+  "version": "0.1.2",
+  "description": "A pixel companion that lives above your Claude Code prompt and helps you rest between turns",
+  "author": {
+    "name": "junghyeon95"
+  },
+  "license": "MIT",
+  "keywords": [
+    "pet",
+    "companion",
+    "break",
+    "wellbeing",
+    "pixel-art",
+    "mod"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "serverUrl": {
+      "type": "string",
+      "title": "Toko plaza server URL",
+      "description": "Base URL of a Toko plaza server for meeting other people's pets. Leave empty to stay offline.",
+      "default": ""
+    }
+  }
+}

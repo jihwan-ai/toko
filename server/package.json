@@ -1,0 +1,9 @@
+{
+  "name": "toko-plaza",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run plaza.ts",
+    "test": "bun test"
+  }
+}
