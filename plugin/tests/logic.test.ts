@@ -4,6 +4,7 @@ import { DAILY_TOKEN_CAP, balanceOf, buy, capTokenIncome, emptyEarn, turnIncome,
 import { BUBBLES_PER_HOUR, canSpeak, emptyBudget, gateCandidates, learnAnswer, recordBubble } from '../hooks/lib/gate'
 import { failureStreak, readGitEvents, readTestOutcome } from '../hooks/lib/perceive'
 import { bonkMessage, parseIntent, parseSoul, sanitizeLine } from '../hooks/lib/persona'
+import { freshSignal, signalLabel, signalText } from '../hooks/lib/peers'
 import { clampName, createBones, createFallbackSoul, nextStage } from '../hooks/lib/pet'
 import { parseSnapshot, plazaEndpoint } from '../hooks/lib/plaza'
 import { createCanvas, decodeGlyphs, encodeCells, setPixel, toBase64 } from '../hooks/lib/raster'
@@ -11,7 +12,7 @@ import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hoo
 
 const usage = (output: number, cacheRead = 0) => ({ input_tokens: 1000, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
 
-const SETTINGS = { isMuted: false, isHidden: false, quiet: null, breakMinutes: 50, offWorkHour: null, isAiOn: true, isNotifyOn: false, isMoodSensing: false, isPlazaOn: true, isMeterOn: true } as const
+const SETTINGS = { isMuted: false, isHidden: false, quiet: null, breakMinutes: 50, offWorkHour: null, isAiOn: true, isNotifyOn: false, isMoodSensing: false, isPlazaOn: true, isPeersOn: true, isMeterOn: true } as const
 
 test('turn income grows on a log scale, so heavy token use pays less per token', async () => {
   expect(turnIncome(usage(0))).toBe(0)
@@ -186,4 +187,23 @@ test('plaza snapshots drop my own echo and anything malformed', async () => {
   expect(parseSnapshot('not json', 'me')).toBe(null)
   expect(plazaEndpoint('https://plaza.example/', '/v1/poll')).toBe('https://plaza.example/v1/poll')
   expect(plazaEndpoint('javascript:alert(1)', '/v1/poll')).toBe(null)
+})
+
+test('the freshest signal of another session is picked, own and seen ones are not', async () => {
+  const done = { kind: 'done', at: 300, label: '배포' }
+  const entries = [
+    { key: 'toko:signal:me', value: { kind: 'done', at: 900, label: '나' } },
+    { key: 'toko:signal:a', value: { kind: 'waiting', at: 100, label: '오래됨' } },
+    { key: 'toko:signal:b', value: done },
+    { key: 'toko:signal:c', value: { kind: 'done', at: 200, label: '덜 최근' } },
+    { key: 'toko:signal:d', value: { kind: 'sleeping', at: 950, label: '모름' } },
+  ]
+  expect(freshSignal(entries, 'toko:signal:me', 150)).toEqual(done)
+  expect(freshSignal(entries, 'toko:signal:me', 300)).toBe(null)
+})
+
+test('a signal reads as the prompt it answered, cut to 16 characters', async () => {
+  expect(signalLabel('  배포   확인\n해 줘, 그리고 로그도 같이 봐 줘  ')).toBe('배포 확인 해 줘, 그리고 로')
+  expect(signalText({ kind: 'done', at: 0, label: '배포 확인' })).toBe('「배포 확인」 세션이 답을 마쳤어요')
+  expect(signalText({ kind: 'waiting', at: 0, label: '' })).toBe('다른 세션이 확인을 기다려요')
 })

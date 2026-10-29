@@ -21,11 +21,11 @@ const BAND = {
   props: { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} },
 } as const
 
-type World = { submitted: string[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown> }
+type World = { submitted: string[]; filled: string[]; blits: number; models: string[]; saved: Record<string, unknown>; store: Map<string, unknown> }
 
 const engine = (on: On, store: Record<string, unknown>, modelText = '{"intent":"stay_quiet"}'): World => {
-  const world: World = { submitted: [], filled: [], blits: 0, models: [], saved: {} }
   const memory = new Map(Object.entries(store))
+  const world: World = { submitted: [], filled: [], blits: 0, models: [], saved: {}, store: memory }
   on('store.get', (_, e) => ({ value: memory.get(e.key) }))
   on('store.set', (_, e) => {
     memory.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -331,4 +331,91 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
   expect(status.text).toContain('콩떡')
   const sent = await $.command.run({ command: 'toko', args: 'plaza heart 콩떡' } as never)
   expect(sent.text).toContain('보냈어요')
+})
+
+test('another session’s finished turn reaches the pet as a bubble', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { kind: 'done', at: START + 1000, label: '배포 확인' } })
+  await begin($)
+  await clock.advance(3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /「배포 확인」 세션이 답을 마쳤어요/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('another session waiting on a permission reaches the pet as a bubble', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:signal:session-2': { kind: 'waiting', at: START + 1000, label: '' } })
+  await begin($)
+  await clock.advance(3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /다른 세션이 확인을 기다려요/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a finished turn and a permission request leave signals, and the session end takes them back', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  on('classic.PermissionRequest', () => ({}) as never)
+  await begin($)
+  await $.prompt.submit({ text: 'fix   the login\nbug before lunch', origin: { kind: 'composer' } } as never)
+  await runTurn($, clock, 400, 5000)
+  expect(world.saved['toko:signal:session-1']).toEqual({ kind: 'done', at: START + 5000, label: 'fix the login bu' })
+  await clock.advance(1000)
+  await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf build' } } as never)
+  expect((world.saved['toko:signal:session-1'] as { kind: string }).kind).toBe('waiting')
+  await $.session.end({ reason: 'other', sessionId: 'session-1', resume: {} } as never)
+  expect(world.store.has('toko:signal:session-1')).toBe(false)
+})
+
+test('an aborted turn leaves no signal', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  await $.turn.start({ text: 'fix it', turnId: 't1' } as never)
+  await clock.advance(3000)
+  await $.turn.complete({ answer: '', durationMs: 3000, isAborted: true, turnId: 't1', reason: 'aborted' } as never)
+  expect(world.saved['toko:signal:session-1']).toBeUndefined()
+})
+
+test('its own signal, signals from before it started and quiet hours stay silent', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const quiet = [new Date(START).getHours(), (new Date(START).getHours() + 1) % 24]
+  const world = engine(on, {
+    'toko:pet': PET,
+    'toko:signal:session-1': { kind: 'done', at: START + 1000, label: '내 세션' },
+    'toko:signal:session-2': { kind: 'done', at: START - 1000, label: '이전 세션' },
+  })
+  await begin($)
+  await clock.advance(3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /세션이/ })).toBeUndefined()
+  await ui.unmount()
+  await $.command.run({ command: 'toko', args: `quiet ${quiet[0]}-${quiet[1]}` } as never)
+  world.store.set('toko:signal:session-3', { kind: 'done', at: START + 4000, label: '조용히' })
+  await clock.advance(3000)
+  const later = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await later.find({ type: 'Text', text: /조용히/ })).toBeUndefined()
+  await later.unmount()
+})
+
+test('signals from an earlier day are cleared when a session starts', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:signal:old': { kind: 'done', at: START - 24 * 3_600_000, label: '어제' } })
+  await begin($)
+  expect(world.store.has('toko:signal:old')).toBe(false)
+})
+
+test('/toko peers off keeps other sessions’ news to itself', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  await begin($)
+  const off = await $.command.run({ command: 'toko', args: 'peers off' } as never)
+  expect(off.text).toContain('전하지 않을게요')
+  expect((world.saved['toko:settings'] as { isPeersOn: boolean }).isPeersOn).toBe(false)
+  world.store.set('toko:signal:session-2', { kind: 'done', at: START + 1000, label: '배포 확인' })
+  await clock.advance(3000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /배포 확인/ })).toBeUndefined()
+  await ui.unmount()
 })

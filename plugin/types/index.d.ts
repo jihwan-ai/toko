@@ -85,6 +85,7 @@ export type TokoSettings = {
   isNotifyOn: boolean
   isMoodSensing: boolean
   isPlazaOn: boolean
+  isPeersOn: boolean
   isMeterOn: boolean
 }
 

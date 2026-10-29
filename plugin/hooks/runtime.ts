@@ -2,13 +2,14 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, fillMemo, forgetMemo, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, todayTally, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, fillMemo, forgetMemo, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPeers, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, signalPeers, startBonk, startFocus, startHatch, stopFocus, sync, think, todayTally, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
 import { SHOP, shopItem } from './lib/economy'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
+import { signalLabel } from './lib/peers'
 import { nameProblem } from './lib/persona'
 import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
 import { memoText } from './lib/memo'
@@ -108,6 +109,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
       await refreshShared($, brain)
       await think($, brain)
       await pollPlaza($, brain)
+      await pollPeers($, brain)
       await sync($, brain)
     }
     if (ctx.ticks % SAVE_EVERY === 0 && brain.isDirty) {
@@ -119,7 +121,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
 }
 
 export async function registerSurfaces($: $): Promise<void> {
-  await $.command.register({ name: 'toko', description: 'Open Toko’s room, or change how Toko behaves (/toko help)', argumentHint: '[help|mute|hide|quiet|break|ai|shop|card|plaza|…]' })
+  await $.command.register({ name: 'toko', description: 'Open Toko’s room, or change how Toko behaves (/toko help)', argumentHint: '[help|mute|hide|quiet|break|ai|shop|card|plaza|peers|…]' })
   await $.command.register({ name: 'bonk', description: 'Ask Toko to bonk Claude with a squeaky hammer', argumentHint: '<reason>', immediate: true })
   await $.command.register({ name: 'feed', description: 'Give Toko a snack' })
   await $.command.register({ name: 'play', description: 'Play with Toko for a moment' })
@@ -179,6 +181,7 @@ export async function start($: $, ctx: Ctx): Promise<void> {
 export async function stop($: $, ctx: Ctx, reason: string): Promise<void> {
   await now($, ctx)
   await save($, ctx.brain)
+  await forgetSignal($, ctx.brain)
   if (reason !== 'clear') {
     ctx.loop?.cancel()
     ctx.loop = null
@@ -195,6 +198,9 @@ export async function submitted($: $, ctx: Ctx, text: string, isPersonTyped: boo
   await now($, ctx)
   brain.lastInputAt = brain.now
   brain.lastTypingAt = brain.now
+  if (isPersonTyped) {
+    brain.promptLabel = signalLabel(text)
+  }
   if (isPersonTyped && brain.settings.isMoodSensing && brain.settings.isAiOn && text.length > 0) {
     void $.model
       .classify(text.slice(0, 600), ['calm', 'annoyed', 'stuck'])
@@ -282,6 +288,11 @@ export async function attention($: $, ctx: Ctx): Promise<void> {
   await onAttention($, ctx.brain)
 }
 
+export async function permissionAsked($: $, ctx: Ctx): Promise<void> {
+  await attention($, ctx)
+  await signalPeers($, ctx.brain, 'waiting')
+}
+
 export const HELP = [
   '/toko — 토코의 방 열기 (상점 · 꾸미기 · 광장)',
   '/toko mute | unmute — 말 걸기 끄기/켜기',
@@ -291,6 +302,7 @@ export const HELP = [
   '/toko off-work 19 | off-work off — 퇴근 시각',
   '/toko ai on | off — 작은 모델 쓰기',
   '/toko notify on | off — OS 알림(하루 3회)',
+  '/toko peers on | off — 옆 세션이 답을 마치거나 확인을 기다릴 때 알리기',
   '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
@@ -440,6 +452,10 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
     case 'notify': {
       const toggle = onOff(value)
       return toggle === null ? { text: '예: /toko notify on' } : changeSettings($, brain, { isNotifyOn: toggle }, toggle ? 'OS 알림을 하루 3번까지 보낼게요.' : 'OS 알림을 껐어요.')
+    }
+    case 'peers': {
+      const toggle = onOff(value)
+      return toggle === null ? { text: '예: /toko peers off' } : changeSettings($, brain, { isPeersOn: toggle }, toggle ? '옆 세션 소식을 전할게요.' : '옆 세션 소식은 전하지 않을게요.')
     }
     case 'meter': {
       const toggle = onOff(value)
