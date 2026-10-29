@@ -1,4 +1,4 @@
-import type { TokoColor } from '../../types'
+import type { TokoSpecies } from '../../types'
 
 import type { Random } from './random'
 import { pickWeighted } from './random'
@@ -270,8 +270,8 @@ export const encounter = (scene: Scene, kind: EncounterKind, random: Random): St
   }
 }
 
-export const friendVisit = (friendId: string, color: TokoColor): Step[] => [
-  { pose: 'look', ms: 600, enter: s => addVisitor(s, friendId, color, 14_000, 2500) },
+export const friendVisit = (friendId: string, species: TokoSpecies): Step[] => [
+  { pose: 'look', ms: 600, enter: s => addVisitor(s, friendId, species, 14_000, 2500) },
   { pose: 'idle', ms: 1800 },
   { pose: 'wave', ms: 2000 },
   { pose: 'jump', ms: 650, enter: s => spawn(s, 'heart', s.x + 7, 0, 0, -3, 1400) },
@@ -290,13 +290,13 @@ export const subagentShadows = (count: number): Step[] => [
   },
 ]
 
-export const groupStretch = (colors: readonly TokoColor[]): Step[] => [
+export const groupStretch = (species: readonly TokoSpecies[]): Step[] => [
   {
     pose: 'stretch',
     ms: 5000,
     enter: s => {
-      for (const [index, color] of colors.slice(0, 2).entries()) {
-        addVisitor(s, `stretch-${index}`, color, 9000, 5000)
+      for (const [index, kind] of species.slice(0, 2).entries()) {
+        addVisitor(s, `stretch-${index}`, kind, 9000, 5000)
       }
     },
   },

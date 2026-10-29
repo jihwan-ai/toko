@@ -1,11 +1,12 @@
-import type { TokoBones, TokoColor, TokoMood, TokoStage } from '../../types'
+import type { TokoBones, TokoMood, TokoSpecies, TokoStage } from '../../types'
+
+import { rarityOf } from './pet'
 
 import type { Random } from './random'
 import type { Canvas, DrawOptions } from './raster'
 import { clear, drawGrid, setPixel } from './raster'
-import type { Grid, MouthShape, Palette } from './sprites'
+import type { Grid, Mark, MouthShape, Palette } from './sprites'
 import {
-  BODY,
   BUBBLE,
   BUG,
   BUTTERFLY,
@@ -17,10 +18,8 @@ import {
   DOLL,
   DOLL_SQUASHED,
   DROP,
-  EAR_TIPS_CHILD,
   EGG,
   EGG_CRACK,
-  FACE,
   FEET,
   FIREFLY,
   GIFT,
@@ -36,13 +35,12 @@ import {
   MOUTHS,
   NECKS,
   NOTE,
-  PATTERNS,
   ROOM_PROPS,
   SHOOTING_STAR,
   SPARKLE,
+  SPECIES_ART,
   SPROUT,
   STAR,
-  TAIL_ADULT,
   UMBRELLA,
   WATERING_CAN,
   ZZZ,
@@ -98,7 +96,7 @@ export type PropKind = 'doll' | 'doll-squashed' | 'gift' | 'gift-open' | 'cup' |
 
 export type Prop = { id: string; kind: PropKind; x: number; y: number; vx: number; until: number; born: number }
 
-export type Visitor = { id: string; color: TokoColor | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number }
+export type Visitor = { id: string; species: TokoSpecies | 'shadow'; x: number; dir: 1 | -1; speed: number; until: number; pauseAt: number | null; pauseMs: number }
 
 export type Look = {
   bones: TokoBones
@@ -156,15 +154,15 @@ export const createScene = (width: number, look: Look, planIdle: (scene: Scene) 
   nextBlinkAt: 3000,
   blinkUntil: 0,
   look,
-  palette: paletteOf(look.bones.color),
+  palette: paletteOf(look.bones.species),
   hammerPalette: hammerOverrides(look.hammer),
   isFrozen: false,
   planIdle,
 })
 
 export const setLook = (scene: Scene, look: Look): void => {
-  if (look.bones.color !== scene.look.bones.color) {
-    scene.palette = paletteOf(look.bones.color)
+  if (look.bones.species !== scene.look.bones.species) {
+    scene.palette = paletteOf(look.bones.species)
   }
   if (look.hammer !== scene.look.hammer) {
     scene.hammerPalette = hammerOverrides(look.hammer)
@@ -205,11 +203,11 @@ export const removeProp = (scene: Scene, id: string): void => {
   scene.props = scene.props.filter(prop => prop.id !== id)
 }
 
-export const addVisitor = (scene: Scene, id: string, color: TokoColor | 'shadow', lifeMs: number, pauseMs = 0): void => {
+export const addVisitor = (scene: Scene, id: string, species: TokoSpecies | 'shadow', lifeMs: number, pauseMs = 0): void => {
   const fromLeft = scene.x > scene.width / 2
   const visitor: Visitor = {
     id,
-    color,
+    species,
     x: fromLeft ? -PET_WIDTH : scene.width,
     dir: fromLeft ? 1 : -1,
     speed: 10,
@@ -310,7 +308,7 @@ const ambientEffects = (scene: Scene, random: Random): void => {
   if (pose === 'sleep' && random() < 0.04) {
     spawn(scene, 'z', scene.x + 13, 4, 2, -2.5, 1800)
   }
-  const rarityChance = { common: 0, uncommon: 0, rare: 0.01, epic: 0.02, legendary: 0.035 }[scene.look.bones.rarity]
+  const rarityChance = { normal: 0, rare: 0.03 }[rarityOf(scene.look.bones)]
   if (pose !== 'hidden' && random() < rarityChance) {
     spawn(scene, 'sparkle', scene.x - 2 + random() * (PET_WIDTH + 4), 1 + random() * 10, 0, 0, 500)
   }
@@ -398,23 +396,25 @@ export const frameOf = (pose: Pose, elapsed: number): Frame => {
 
 const drawFace = (canvas: Canvas, scene: Scene, frame: Frame, x: number, y: number, scale: number, isBlinking: boolean): void => {
   const mood = MOOD_FACE[scene.look.mood]
+  const art = SPECIES_ART[scene.look.bones.species]
+  const face = art.face
   const eyeShape = isBlinking && (frame.eyes ?? mood.eyes) === 'open' ? 'closed' : (frame.eyes ?? mood.eyes)
-  const [left, right] = eyeGrids(scene.look.bones.eyes, eyeShape)
+  const [left, right] = eyeGrids(art.eyes, eyeShape)
   const options: DrawOptions = { scale }
-  drawGrid(canvas, left, x + FACE.leftEye[0] * scale, y + FACE.leftEye[1] * scale, scene.palette, options)
-  drawGrid(canvas, right, x + FACE.rightEye[0] * scale, y + FACE.rightEye[1] * scale, scene.palette, options)
+  drawGrid(canvas, left, x + face.leftEye[0] * scale, y + face.leftEye[1] * scale, scene.palette, options)
+  drawGrid(canvas, right, x + face.rightEye[0] * scale, y + face.rightEye[1] * scale, scene.palette, options)
   const blush = scene.palette.get('p') ?? 0
   const eyeColor = scene.palette.get('e') ?? 0
-  for (const [bx, by] of [FACE.leftBlush, FACE.rightBlush]) {
+  for (const [bx, by] of [face.leftBlush, face.rightBlush]) {
     fillBlock(canvas, x + bx * scale, y + by * scale, scale, blush)
   }
   if (mood.hasBrows && frame.eyes === undefined) {
-    fillBlock(canvas, x + 4 * scale, y + 4 * scale, scale, eyeColor)
-    fillBlock(canvas, x + 11 * scale, y + 4 * scale, scale, eyeColor)
+    fillBlock(canvas, x + (face.leftEye[0] + 1) * scale, y + (face.leftEye[1] - 1) * scale, scale, eyeColor)
+    fillBlock(canvas, x + face.rightEye[0] * scale, y + (face.rightEye[1] - 1) * scale, scale, eyeColor)
   }
   const mouth = MOUTHS[frame.mouth ?? mood.mouth]
   for (const [mx, my, key] of mouth) {
-    fillBlock(canvas, x + (FACE.mouth[0] + mx) * scale, y + (FACE.mouth[1] + my) * scale, scale, scene.palette.get(key) ?? 0)
+    fillBlock(canvas, x + (face.mouth[0] + mx) * scale, y + (face.mouth[1] + my) * scale, scale, scene.palette.get(key) ?? 0)
   }
 }
 
@@ -458,6 +458,12 @@ const drawHammer = (canvas: Canvas, scene: Scene, hammer: Frame['hammer'], x: nu
   }
 }
 
+const drawMark = (canvas: Canvas, scene: Scene, mark: Mark, x: number, y: number, scale: number, isFlipped: boolean): void => {
+  const width = mark.grid.reduce((max, row) => Math.max(max, row.length), 0)
+  const dx = isFlipped ? PET_WIDTH - mark.dx - width : mark.dx
+  drawGrid(canvas, mark.grid, x + dx * scale, y + mark.dy * scale, scene.palette, { scale, isFlipped })
+}
+
 export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: number, x: number, baseY: number, scale: number): void => {
   const look = scene.look
   if (pose === 'hidden') {
@@ -473,23 +479,22 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   const px = x + frame.shakeX * scale
   const py = baseY + frame.dy * scale
   const isFlipped = scene.dir < 0
-  if (look.stage === 'adult') {
-    drawGrid(canvas, TAIL_ADULT, isFlipped ? px + 15 * scale : px - 1 * scale, py + 9 * scale, scene.palette, { scale, isFlipped })
+  const art = SPECIES_ART[look.bones.species]
+  if (look.stage === 'adult' && art.adult !== undefined) {
+    drawMark(canvas, scene, art.adult, px, py, scale, isFlipped)
   }
-  if (look.stage === 'child' || look.stage === 'adult') {
-    drawGrid(canvas, EAR_TIPS_CHILD, px, py - 1 * scale, scene.palette, { scale })
+  if ((look.stage === 'child' || look.stage === 'adult') && art.child !== undefined) {
+    drawMark(canvas, scene, art.child, px, py, scale, isFlipped)
   }
-  drawGrid(canvas, BODY, px, py, scene.palette, { scale })
-  const patternColor = scene.palette.get('T') ?? 0
-  for (const [tx, ty] of PATTERNS[look.bones.pattern]) {
-    fillBlock(canvas, px + tx * scale, py + ty * scale, scale, patternColor)
+  drawGrid(canvas, art.body, px, py, scene.palette, { scale })
+  if (art.isFloating !== true) {
+    const feetY = frame.feet === 'tuck' ? py : baseY
+    drawGrid(canvas, [FEET[frame.feet]], px, feetY + 14 * scale, scene.palette, { scale, isFlipped })
   }
-  const feetY = frame.feet === 'tuck' ? py : baseY
-  drawGrid(canvas, [FEET[frame.feet]], px, feetY + 14 * scale, scene.palette, { scale, isFlipped })
   drawFace(canvas, scene, frame, px, py, scale, scene.clock < scene.blinkUntil)
   const hat = look.hat === undefined ? undefined : HATS[look.hat]
   if (hat !== undefined) {
-    drawGrid(canvas, hat.grid, px + hat.dx * scale, py + hat.dy * scale, scene.palette, { scale })
+    drawGrid(canvas, hat.grid, px + hat.dx * scale, py + (hat.dy + art.hatDy) * scale, scene.palette, { scale })
   }
   const neck = look.neck === undefined ? undefined : NECKS[look.neck]
   if (neck !== undefined) {
@@ -552,14 +557,19 @@ const SHADOW_TINT = hex('#888899')
 const drawVisitor = (canvas: Canvas, scene: Scene, visitor: Visitor): void => {
   const isPaused = visitor.pauseAt !== null && Math.abs(visitor.x - visitor.pauseAt) < 1
   const frame = frameOf(isPaused ? 'wave' : 'walk', scene.clock)
-  const palette = visitor.color === 'shadow' ? scene.palette : paletteOf(visitor.color)
-  const options: DrawOptions = visitor.color === 'shadow' ? { tint: SHADOW_TINT, isFlipped: visitor.dir < 0 } : { isFlipped: visitor.dir < 0 }
-  drawGrid(canvas, BODY, visitor.x, 1 + frame.dy, palette, options)
-  drawGrid(canvas, [FEET[frame.feet]], visitor.x, 15, palette, options)
-  if (visitor.color !== 'shadow') {
-    drawGrid(canvas, ['we', 'ee'], visitor.x + 3, 6 + frame.dy, palette)
-    drawGrid(canvas, ['we', 'ee'], visitor.x + 11, 6 + frame.dy, palette)
-    drawGrid(canvas, ['mm'], visitor.x + 7, 8 + frame.dy, palette)
+  const species = visitor.species === 'shadow' ? scene.look.bones.species : visitor.species
+  const art = SPECIES_ART[species]
+  const palette = visitor.species === 'shadow' ? scene.palette : paletteOf(species)
+  const options: DrawOptions = visitor.species === 'shadow' ? { tint: SHADOW_TINT, isFlipped: visitor.dir < 0 } : { isFlipped: visitor.dir < 0 }
+  const y = 1 + frame.dy
+  drawGrid(canvas, art.body, visitor.x, y, palette, options)
+  if (art.isFloating !== true) {
+    drawGrid(canvas, [FEET[frame.feet]], visitor.x, 15, palette, options)
+  }
+  if (visitor.species !== 'shadow') {
+    drawGrid(canvas, ['we', 'ee'], visitor.x + art.face.leftEye[0], y + art.face.leftEye[1], palette)
+    drawGrid(canvas, ['we', 'ee'], visitor.x + art.face.rightEye[0], y + art.face.rightEye[1], palette)
+    drawGrid(canvas, ['mm'], visitor.x + art.face.mouth[0], y + art.face.mouth[1], palette)
   }
 }
 

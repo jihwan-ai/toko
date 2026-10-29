@@ -1,5 +1,6 @@
-import type { TokoBones, TokoMemoryEvent, TokoMood, TokoNeeds, TokoSoul, TokoTraits } from '../../types'
+import type { TokoBones, TokoMemoryEvent, TokoMood, TokoNeeds, TokoRarity, TokoSoul, TokoTraits } from '../../types'
 
+import { SPECIES, rarityOf } from './pet'
 import type { Random } from './random'
 import { pick } from './random'
 import type { Candidate } from './sim'
@@ -93,18 +94,15 @@ export const extractJson = (text: string): Record<string, unknown> | null => {
   }
 }
 
-const RARITY_FLAVOR: Readonly<Record<TokoBones['rarity'], string>> = {
-  common: '평범하고 다정한',
-  uncommon: '조금 독특한 취향이 있는',
-  rare: '엉뚱한 버릇이 하나 있는',
-  epic: '꽤 별난 세계관을 가진',
-  legendary: '아주 별나지만 미워할 수 없는',
+const RARITY_FLAVOR: Readonly<Record<TokoRarity, string>> = {
+  normal: '평범하고 다정한',
+  rare: '아주 별나지만 미워할 수 없는',
 }
 
 export const soulPrompt = (bones: TokoBones): string =>
   [
-    '토큰을 먹고 사는 동그란 찹쌀떡 같은 펫이 막 알에서 깨어났다. 이 펫의 영혼을 지어 줘.',
-    `색: ${bones.color}, 무늬: ${bones.pattern}, 눈: ${bones.eyes}, 희귀도: ${bones.rarity}(${RARITY_FLAVOR[bones.rarity]} 성격).`,
+    `토큰을 먹고 사는 동그란 ${SPECIES[bones.species].label} 펫이 막 알에서 깨어났다. 이 펫의 영혼을 지어 줘.`,
+    `종족: ${SPECIES[bones.species].label}, 희귀도: ${rarityOf(bones)}(${RARITY_FLAVOR[rarityOf(bones)]} 성격).`,
     '조건: name은 한글 한 낱말 2~4자(12자 이내), personality는 한 문장, quirk는 말버릇 하나(따옴표로 예시 포함).',
     'traits는 energetic, chatty, worried, playful 네 개, 각각 0~1 소수.',
     'JSON 하나만 답해: {"name": "...", "personality": "...", "quirk": "...", "traits": {"energetic": 0.5, "chatty": 0.5, "worried": 0.5, "playful": 0.5}}',

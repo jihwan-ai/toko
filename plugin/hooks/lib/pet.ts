@@ -1,21 +1,16 @@
-import type { TokoBones, TokoGrowth, TokoPet, TokoRarity, TokoSoul, TokoStage, TokoTraits } from '../../types'
+import type { TokoBones, TokoGrowth, TokoPet, TokoRarity, TokoSoul, TokoSpecies, TokoStage, TokoTraits } from '../../types'
 
+import type { Random } from './random'
 import { createRandom, pick, pickWeighted } from './random'
 
-const RARITY_WEIGHTS: readonly { item: TokoRarity; weight: number }[] = [
-  { item: 'common', weight: 60 },
-  { item: 'uncommon', weight: 25 },
+export const RARITY_WEIGHTS: readonly { item: TokoRarity; weight: number }[] = [
+  { item: 'normal', weight: 90 },
   { item: 'rare', weight: 10 },
-  { item: 'epic', weight: 4 },
-  { item: 'legendary', weight: 1 },
 ]
 
 export const RARITY_LABEL: Readonly<Record<TokoRarity, string>> = {
-  common: '보통',
-  uncommon: '드묾',
-  rare: '희귀',
-  epic: '영웅',
-  legendary: '전설',
+  normal: '노말',
+  rare: '레어',
 }
 
 export const STAGE_LABEL: Readonly<Record<TokoStage, string>> = {
@@ -25,19 +20,33 @@ export const STAGE_LABEL: Readonly<Record<TokoStage, string>> = {
   adult: '어른',
 }
 
-export const COLOR_LABEL = { honey: '꿀', mint: '민트', peach: '복숭아', lavender: '라벤더' } as const
+export const SPECIES: Readonly<Record<TokoSpecies, { label: string; rarity: TokoRarity }>> = {
+  cat: { label: '고양이', rarity: 'normal' },
+  bear: { label: '곰', rarity: 'normal' },
+  chick: { label: '병아리', rarity: 'normal' },
+  bunny: { label: '토끼', rarity: 'normal' },
+  frog: { label: '개구리', rarity: 'normal' },
+  penguin: { label: '펭귄', rarity: 'normal' },
+  fox: { label: '여우', rarity: 'normal' },
+  dragon: { label: '용', rarity: 'normal' },
+  unicorn: { label: '유니콘', rarity: 'rare' },
+  ghost: { label: '유령', rarity: 'rare' },
+  phoenix: { label: '불사조', rarity: 'rare' },
+  robot: { label: '로봇', rarity: 'rare' },
+  axolotl: { label: '우파루파', rarity: 'rare' },
+}
 
 export const UNNAMED = '이름 없음'
 
-export const createBones = (seed: number): TokoBones => {
-  const random = createRandom(seed)
-  return {
-    seed,
-    color: pick(random, ['honey', 'mint', 'peach', 'lavender'] as const),
-    pattern: pick(random, ['plain', 'spots', 'stripe'] as const),
-    eyes: pick(random, ['round', 'dot', 'sparkle'] as const),
-    rarity: pickWeighted(random, RARITY_WEIGHTS) ?? 'common',
-  }
+export const SPECIES_IDS = Object.keys(SPECIES) as TokoSpecies[]
+
+export const isSpecies = (value: unknown): value is TokoSpecies => typeof value === 'string' && value in SPECIES
+
+export const rarityOf = (bones: TokoBones): TokoRarity => SPECIES[bones.species].rarity
+
+export const rollSpecies = (random: Random): TokoSpecies => {
+  const rarity = pickWeighted(random, RARITY_WEIGHTS) ?? 'normal'
+  return pick(random, SPECIES_IDS.filter(species => SPECIES[species].rarity === rarity))
 }
 
 const FALLBACK_SOULS: readonly Omit<TokoSoul, 'hatchedAt' | 'isFallback' | 'traits'>[] = [
@@ -66,8 +75,9 @@ export const nameOf = (pet: TokoPet | null): string | null => {
   return soul === null || soul === undefined || soul.isNamed === false ? null : soul.name
 }
 
-export const createPet = (seed: number, day: string): TokoPet => ({
-  bones: createBones(seed),
+export const createPet = (seed: number, day: string, species: TokoSpecies = 'cat'): TokoPet => ({
+  id: `pet-${seed.toString(36)}`,
+  bones: { seed, species },
   soul: null,
   growth: { stage: 'egg', daysTogether: 0, breaksAccepted: 0, lastDay: day },
 })
@@ -89,3 +99,9 @@ export const clampName = (name: string): string => {
   const word = name.trim().split(/\s+/)[0] ?? ''
   return [...word].slice(0, 12).join('')
 }
+
+export const upgradePet = (pet: TokoPet): TokoPet => ({
+  ...pet,
+  id: typeof pet.id === 'string' ? pet.id : `pet-${pet.bones.seed.toString(36)}`,
+  bones: { seed: pet.bones.seed, species: isSpecies(pet.bones.species) ? pet.bones.species : 'cat' },
+})

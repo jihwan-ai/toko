@@ -4,8 +4,8 @@ import type { Register } from 'claude-code'
 import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
-import { SHOP, shopItem } from './lib/economy'
-import { STAGE_LABEL, UNNAMED, nameOf } from './lib/pet'
+import { SHOP, SPEND, shopItem } from './lib/economy'
+import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
 import { ACTION_LABEL } from './lib/plaza'
 import { encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, resize } from './lib/scene'
@@ -21,12 +21,14 @@ import {
   buyItem,
   choose,
   createCtx,
+  drawFromRoom,
   feedCommand,
   gameCatch,
   gameMove,
   measured,
   permissionAsked,
   petStatus,
+  pickPet,
   playCommand,
   plazaAct,
   roomOpenedFromBand,
@@ -43,6 +45,7 @@ import {
 } from './runtime'
 
 const petAtom = atom({ plugin: 'toko', key: 'pet' } as const, null)
+const shelfAtom = atom({ plugin: 'toko', key: 'shelf' } as const, [])
 const needsAtom = atom({ plugin: 'toko', key: 'needs' } as const, null)
 const moodAtom = atom({ plugin: 'toko', key: 'mood' } as const, 'calm')
 const walletAtom = atom({ plugin: 'toko', key: 'wallet' } as const, null)
@@ -254,7 +257,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, wallet, needs, mood, plaza, lessons] = await Promise.all([read($, petAtom), read($, walletAtom), read($, needsAtom), read($, moodAtom), read($, plazaAtom), read($, lessonsAtom)])
+    const [pet, shelf, wallet, needs, mood, plaza, lessons] = await Promise.all([read($, petAtom), read($, shelfAtom), read($, walletAtom), read($, needsAtom), read($, moodAtom), read($, plazaAtom), read($, lessonsAtom)])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(20, e.props.bodyColumns))
@@ -277,7 +280,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" gap={1}>
         {hasPicture && ctx.room !== null && <Raster key={ROOM_KEY} columns={columns} rows={ROOM_ROWS} cells={ctx.room.lastCells} />}
         <Box flexDirection="column">
-          <Text weight="bold">{soul === null || soul === undefined ? '알' : `${nameOf(pet) ?? UNNAMED} · ${STAGE_LABEL[pet?.growth.stage ?? 'baby']} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
+          <Text weight="bold">{pet === null || soul === null || soul === undefined ? '알' : `${nameOf(pet) ?? UNNAMED} · ${SPECIES[pet.bones.species].label} · ${STAGE_LABEL[pet.growth.stage]} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
           {soul !== null && soul !== undefined && (
             <Text dimColor>
               {soul.personality} — {soul.quirk}
@@ -305,6 +308,19 @@ export const register: Register = (on, options) => {
             </Box>
           </Box>
         ))}
+        <Box flexDirection="column">
+          <Text weight="bold">펫 · 보관함 {shelf.length}마리</Text>
+          <Box flexWrap="wrap" gap={1}>
+            <Button key="draw" variant="primary" onPress={press(() => drawFromRoom($, ctx))}>
+              펫 뽑기 <Text dimColor>{String(SPEND.draw)}</Text>
+            </Button>
+            {shelf.map(shelved => (
+              <Button key={`pick-${shelved.id}`} onPress={press(() => pickPet($, ctx, shelved.id))}>
+                {`${shelved.soul === null ? '알' : (nameOf(shelved) ?? UNNAMED)} · ${SPECIES[shelved.bones.species].label}`} <Text dimColor>{RARITY_LABEL[rarityOf(shelved.bones)]}</Text>
+              </Button>
+            ))}
+          </Box>
+        </Box>
         {owned.length > 0 && (
           <Box flexDirection="column">
             <Text weight="bold">꾸미기</Text>

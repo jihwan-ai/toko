@@ -1,4 +1,6 @@
-import type { TokoColor, TokoFriend, TokoMood } from '../../types'
+import type { TokoFriend, TokoMood, TokoSpecies } from '../../types'
+
+import { isSpecies } from './pet'
 
 export const PLAZA_POLL_MS = 20_000
 export const FRIEND_TTL_MS = 90_000
@@ -17,13 +19,33 @@ export const ACTION_LABEL: Readonly<Record<PlazaAction, string>> = {
   cheer: '응원',
 }
 
-export type PlazaMe = { id: string; name: string; color: TokoColor; mood: TokoMood; status: PlazaStatus }
+type WireColor = 'honey' | 'mint' | 'peach' | 'lavender'
+
+const WIRE_COLOR: Readonly<Record<TokoSpecies, WireColor>> = {
+  cat: 'honey',
+  bear: 'peach',
+  chick: 'honey',
+  bunny: 'lavender',
+  frog: 'mint',
+  penguin: 'lavender',
+  fox: 'peach',
+  dragon: 'mint',
+  unicorn: 'lavender',
+  ghost: 'lavender',
+  phoenix: 'peach',
+  robot: 'mint',
+  axolotl: 'peach',
+}
+
+export const wireColor = (species: TokoSpecies): WireColor => WIRE_COLOR[species]
+
+export type PlazaMe = { id: string; name: string; color: WireColor; species: TokoSpecies; mood: TokoMood; status: PlazaStatus }
 
 export type PlazaEvent = {
   id: string
   at: number
   kind: PlazaAction | 'join' | 'leave'
-  from: { id: string; name: string; color: TokoColor }
+  from: { id: string; name: string; species: TokoSpecies }
   to: string | null
   line: string
 }
@@ -36,6 +58,8 @@ const KINDS: ReadonlySet<string> = new Set([...PLAZA_ACTIONS, 'join', 'leave'])
 
 const text = (value: unknown, max: number): string => (typeof value === 'string' ? [...value.replace(/\s+/g, ' ').trim()].slice(0, max).join('') : '')
 
+const speciesOf = (raw: Record<string, unknown>): TokoSpecies => (isSpecies(raw.species) ? raw.species : 'cat')
+
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 
@@ -47,7 +71,7 @@ const parseFriend = (value: unknown): TokoFriend | null => {
   return {
     id: text(raw.id, 64),
     name: text(raw.name, 12) || '친구',
-    color: raw.color as TokoColor,
+    species: speciesOf(raw),
     mood: MOODS.has(String(raw.mood)) ? (raw.mood as TokoMood) : 'calm',
     status: text(raw.status, 12) || 'idle',
     lastSeen: typeof raw.lastSeen === 'number' ? raw.lastSeen : 0,
@@ -64,7 +88,7 @@ const parseEvent = (value: unknown): PlazaEvent | null => {
     id: text(raw.id, 64),
     at: typeof raw.at === 'number' ? raw.at : 0,
     kind: raw.kind as PlazaEvent['kind'],
-    from: { id: text(from.id, 64), name: text(from.name, 12) || '친구', color: from.color as TokoColor },
+    from: { id: text(from.id, 64), name: text(from.name, 12) || '친구', species: speciesOf(from) },
     to: typeof raw.to === 'string' ? raw.to : null,
     line: text(raw.line, 80),
   }

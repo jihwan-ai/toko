@@ -27,10 +27,10 @@ import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, 
 import type { Answer } from './lib/gate'
 import { freshSignal, isSignal, signalText } from './lib/peers'
 import type { PeerSignal } from './lib/peers'
-import { advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage } from './lib/pet'
+import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, parseSnapshot, plazaEndpoint } from './lib/plaza'
+import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, parseSnapshot, plazaEndpoint, wireColor } from './lib/plaza'
 import type { PlazaAction, PlazaEvent, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
@@ -41,6 +41,7 @@ import { BREAK_KINDS, ENCOUNTER_LINES, candidatesOf, decayNeeds, encounterOf, fu
 import { HOUR, MINUTE, clockText, dayKey, hourOf } from './lib/time'
 
 const petAtom = atom({ plugin: 'toko', key: 'pet' } as const, null)
+const shelfAtom = atom({ plugin: 'toko', key: 'shelf' } as const, [])
 const needsAtom = atom({ plugin: 'toko', key: 'needs' } as const, null)
 const moodAtom = atom({ plugin: 'toko', key: 'mood' } as const, 'calm')
 const walletAtom = atom({ plugin: 'toko', key: 'wallet' } as const, null)
@@ -58,6 +59,7 @@ type $ = EngineInterface
 
 export const KEY = {
   pet: 'toko:pet',
+  shelf: 'toko:shelf',
   needs: 'toko:needs',
   memory: 'toko:memory',
   wallet: 'toko:wallet',
@@ -101,6 +103,7 @@ export type Brain = {
   random: Random
   now: number
   pet: TokoPet | null
+  shelf: readonly TokoPet[]
   needs: TokoNeeds
   memory: TokoMemory
   wallet: TokoWallet
@@ -151,6 +154,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   random: createRandom(seed),
   now: 0,
   pet: null,
+  shelf: [],
   needs: fullNeeds(0),
   memory: emptyMemory(),
   wallet: { coins: 0, items: [], worn: [] },
@@ -210,8 +214,9 @@ export const today = (brain: Brain): string => dayKey(brain.now)
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, keys] = await Promise.all([
+  const [pet, shelf, needs, memory, wallet, budget, settings, marks, plazaId, keys] = await Promise.all([
     $.store.get(KEY.pet),
+    $.store.get(KEY.shelf),
     $.store.get(KEY.needs),
     $.store.get(KEY.memory),
     $.store.get(KEY.wallet),
@@ -221,7 +226,8 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.plazaId),
     $.store.keys(),
   ])
-  brain.pet = isPet(pet) ? { ...pet, growth: advanceDay(pet.growth, day) } : null
+  brain.pet = isPet(pet) ? upgradePet({ ...pet, growth: advanceDay(pet.growth, day) }) : null
+  brain.shelf = Array.isArray(shelf) ? shelf.filter(isPet).map(upgradePet) : []
   brain.needs = merge(fullNeeds(now), needs)
   brain.memory = merge(emptyMemory(), memory)
   brain.wallet = merge(brain.wallet, wallet)
@@ -269,6 +275,7 @@ export async function save($: $, brain: Brain): Promise<void> {
   }
   await Promise.all([
     $.store.set(KEY.pet, brain.pet),
+    $.store.set(KEY.shelf, brain.shelf),
     $.store.set(KEY.needs, brain.needs),
     $.store.set(KEY.memory, brain.memory),
     $.store.set(KEY.wallet, brain.wallet),
@@ -286,6 +293,7 @@ export const balance = (brain: Brain): number => balanceOf(brain.wallet, [...bra
 export async function sync($: $, brain: Brain): Promise<void> {
   await Promise.all([
     update($, petAtom, () => brain.pet),
+    update($, shelfAtom, () => brain.shelf),
     update($, needsAtom, () => brain.needs),
     update($, moodAtom, () => brain.mood),
     update($, walletAtom, () => ({ ...brain.wallet, coins: balance(brain) })),
@@ -316,7 +324,7 @@ export async function hush($: $): Promise<void> {
 }
 
 export const lookOf = (brain: Brain): Look => ({
-  bones: brain.pet?.bones ?? { seed: 0, color: 'honey', pattern: 'plain', eyes: 'round', rarity: 'common' },
+  bones: brain.pet?.bones ?? { seed: 0, species: 'cat' },
   stage: brain.pet?.growth.stage ?? 'egg',
   mood: brain.mood,
   hat: wornOf(brain.wallet, 'hat'),
@@ -380,7 +388,7 @@ async function quietLine($: $, brain: Brain, key: string): Promise<void> {
 export async function startHatch($: $, brain: Brain): Promise<void> {
   if (brain.pet === null) {
     const seed = Math.floor(brain.random() * 2 ** 31)
-    brain.pet = createPet(seed, today(brain))
+    brain.pet = createPet(seed, today(brain), rollSpecies(brain.random))
     brain.isDirty = true
   }
   if (brain.pet.growth.stage !== 'egg' || brain.isHatching) {
@@ -591,7 +599,7 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
   switch (kind) {
     case 'stretch':
     case 'plaza-stretch':
-      act(brain, kind === 'stretch' ? direct.stretch() : direct.groupStretch(brain.friends.map(friend => friend.color)), PRIORITY.event)
+      act(brain, kind === 'stretch' ? direct.stretch() : direct.groupStretch(brain.friends.map(friend => friend.species)), PRIORITY.event)
       await startCountdown($, brain, { kind, label: '같이 기지개', endsAt: now + 30_000, reward: kind === 'stretch' ? HEALTH_REWARD.breakAccepted : HEALTH_REWARD.plazaStretch, then: 'praise' })
       await say($, brain, '쭉— 팔을 머리 위로. 30초만 같이 펴자')
       if (kind === 'plaza-stretch') {
@@ -828,6 +836,68 @@ export async function purchase($: $, brain: Brain, id: string): Promise<string> 
   await say($, brain, item?.kind === 'hat' || item?.kind === 'neck' ? '어때? 잘 어울려?' : item?.kind === 'pet' ? `${item.name}, 잘 부탁해!` : `${item?.name ?? id} 샀다!`)
   await save($, brain)
   return `${item?.name ?? id}을(를) 샀어요.`
+}
+
+async function refuse($: $, brain: Brain, reason: string): Promise<string> {
+  await say($, brain, reason)
+  return reason
+}
+
+export async function drawPet($: $, brain: Brain): Promise<string> {
+  if (brain.isHatching || brain.pet?.growth.stage === 'egg') {
+    return refuse($, brain, '지금 알이 깨어나는 중이야')
+  }
+  const owned = [brain.pet, ...brain.shelf].filter((pet): pet is TokoPet => pet !== null).map(pet => pet.bones.species)
+  if (SPECIES_IDS.every(species => owned.includes(species))) {
+    return refuse($, brain, '친구를 다 모았어! 더 뽑을 알이 없어')
+  }
+  const coins = balance(brain)
+  if (coins < SPEND.draw) {
+    return refuse($, brain, `코인이 ${SPEND.draw - coins}개 모자라`)
+  }
+  const species = rollSpecies(brain.random)
+  brain.earn = { ...brain.earn, spent: brain.earn.spent + SPEND.draw }
+  brain.isDirty = true
+  if (owned.includes(species)) {
+    remember(brain, 'drew-dud', species)
+    await sync($, brain)
+    await say($, brain, `꽝… 이미 있는 ${SPECIES[species].label}(이)가 나왔어`)
+    await save($, brain)
+    return `꽝! 이미 있는 ${SPECIES[species].label}이(가) 나왔어요.`
+  }
+  const seed = Math.floor(brain.random() * 2 ** 31)
+  brain.shelf = brain.pet === null ? brain.shelf : [...brain.shelf, brain.pet]
+  brain.pet = createPet(seed, today(brain), species)
+  brain.isDirty = true
+  remember(brain, 'drew', species, 2)
+  if (brain.scene !== null) {
+    setLook(brain.scene, lookOf(brain))
+  }
+  await sync($, brain)
+  await save($, brain)
+  await startHatch($, brain)
+  return `${RARITY_LABEL[rarityOf(brain.pet.bones)]} 알이 나왔어요. 곧 깨어나요.`
+}
+
+export async function switchPet($: $, brain: Brain, id: string): Promise<string> {
+  const next = brain.shelf.find(pet => pet.id === id)
+  if (next === undefined) {
+    return '보관함에 그런 펫이 없어요.'
+  }
+  if (brain.isHatching) {
+    return '알이 깨어나는 동안은 바꿀 수 없어요.'
+  }
+  brain.shelf = [...brain.shelf.filter(pet => pet.id !== id), ...(brain.pet === null ? [] : [brain.pet])]
+  brain.pet = { ...next, growth: advanceDay(next.growth, today(brain)) }
+  brain.isDirty = true
+  if (brain.scene !== null) {
+    setLook(brain.scene, lookOf(brain))
+  }
+  act(brain, direct.greet(), PRIORITY.reaction)
+  await sync($, brain)
+  await say($, brain, '다시 같이 다니자!')
+  await save($, brain)
+  return `${next.soul?.name ?? '알'}(이)랑 같이 다녀요.`
 }
 
 export async function toggleWear($: $, brain: Brain, id: string): Promise<void> {
@@ -1197,7 +1267,8 @@ export const plazaStatus = (brain: Brain): PlazaStatus => {
 const plazaMe = (brain: Brain) => ({
   id: brain.plazaId,
   name: nameOf(brain.pet) ?? '알',
-  color: brain.pet?.bones.color ?? 'honey',
+  color: wireColor(brain.pet?.bones.species ?? 'cat'),
+  species: brain.pet?.bones.species ?? 'cat',
   mood: brain.mood,
   status: plazaStatus(brain),
 })
@@ -1240,7 +1311,7 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   remember(brain, 'friend-wave', event.from.name, 1)
   brain.needs = restore(brain.needs, { social: 8, hunger: event.kind === 'snack' ? 15 : 0 })
   if (brain.scene !== null && !isBusy(brain.scene) && canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
-    act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.color), PRIORITY.encounter)
+    act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.species), PRIORITY.encounter)
   }
   if (!isQuietNow(brain.settings, hourOf(brain.now))) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')

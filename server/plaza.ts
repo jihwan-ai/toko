@@ -3,13 +3,13 @@ export type Mood = 'excited' | 'calm' | 'sleepy' | 'worried' | 'sulky'
 export type Status = 'working' | 'resting' | 'idle' | 'away'
 export type Action = 'wave' | 'heart' | 'snack' | 'stretch-call' | 'cheer'
 
-export type Member = { id: string; name: string; color: Color; mood: Mood; status: Status; lastSeen: number }
+export type Member = { id: string; name: string; color: Color; species?: string; mood: Mood; status: Status; lastSeen: number }
 
 export type PlazaEvent = {
   id: string
   at: number
   kind: Action | 'join'
-  from: { id: string; name: string; color: Color }
+  from: { id: string; name: string; color: Color; species?: string }
   to: string | null
   line: string
 }
@@ -71,15 +71,19 @@ export const parseMe = (value: unknown, now: number): Member | null => {
   if (raw === null || !/^[a-z0-9-]{4,64}$/i.test(id) || !COLORS.has(String(raw.color))) {
     return null
   }
+  const species = clean(raw.species, 16)
   return {
     id,
     name: clean(raw.name, 12) || '친구',
     color: raw.color as Color,
+    ...(/^[a-z]{2,16}$/.test(species) ? { species } : {}),
     mood: MOODS.has(String(raw.mood)) ? (raw.mood as Mood) : 'calm',
     status: STATUSES.has(String(raw.status)) ? (raw.status as Status) : 'idle',
     lastSeen: now,
   }
 }
+
+const senderOf = (me: Member): PlazaEvent['from'] => ({ id: me.id, name: me.name, color: me.color, ...(me.species === undefined ? {} : { species: me.species }) })
 
 export const actionPrompt = (from: Member, to: Member | null, kind: Action): string =>
   [
@@ -247,7 +251,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
     const at = me.lastSeen
     prune(at)
     if (!members.has(me.id)) {
-      record({ id: nextId(), at, kind: 'join', from: { id: me.id, name: me.name, color: me.color }, to: null, line: '' })
+      record({ id: nextId(), at, kind: 'join', from: senderOf(me), to: null, line: '' })
     }
     members.set(me.id, me)
     const friends = [...members.values()].filter(member => member.id !== me.id).slice(0, 30)
@@ -266,7 +270,7 @@ export const createPlaza = (options: PlazaOptions = {}) => {
       return json(404, { error: 'that friend is not in the plaza' })
     }
     const id = nextId()
-    const from = { id: me.id, name: me.name, color: me.color }
+    const from = senderOf(me)
     const task = generate(actionPrompt(me, to, kind))
       .catch(() => null)
       .then(raw => record({ id, at: now(), kind, from, to: to?.id ?? null, line: sanitizeLine(raw) ?? fallbackLine(kind) }))

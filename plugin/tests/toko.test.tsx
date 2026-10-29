@@ -3,7 +3,8 @@ import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 const PET = {
-  bones: { seed: 7, color: 'mint', pattern: 'spots', eyes: 'round', rarity: 'rare' },
+  id: 'pet-7',
+  bones: { seed: 7, species: 'penguin' },
   soul: { name: '말랑', personality: '느긋하고 다정한 아이', quirk: '"말랑~"', traits: { energetic: 0.5, chatty: 0.7, worried: 0.6, playful: 0.5 }, hatchedAt: '2026-10-01T00:00:00.000Z', isFallback: false },
   growth: { stage: 'baby', daysTogether: 2, breaksAccepted: 1, lastDay: '2026-10-29' },
 }
@@ -11,6 +12,13 @@ const PET = {
 const UNNAMED_PET = { ...PET, soul: { ...PET.soul, name: '콩떡', isNamed: false } }
 
 const SOUL_REPLY = '{"name":"콩떡","personality":"조용히 곁을 지키는 아이","quirk":"\\"음…\\"","traits":{"energetic":0.4,"chatty":0.6,"worried":0.5,"playful":0.7}}'
+
+const FRIEND_PET = {
+  id: 'pet-9',
+  bones: { seed: 9, species: 'fox' },
+  soul: { ...PET.soul, name: '콩떡' },
+  growth: { stage: 'child', daysTogether: 5, breaksAccepted: 4, lastDay: '2026-10-20' },
+}
 
 const START = Date.UTC(2026, 9, 29, 5, 0, 0)
 
@@ -342,8 +350,8 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
     calls.push(e.url)
     const body = JSON.stringify({
       now: START,
-      friends: [{ id: 'f1', name: '콩떡', color: 'peach', mood: 'calm', status: 'working', lastSeen: START }],
-      events: [{ id: 'e1', at: START, kind: 'wave', from: { id: 'f1', name: '콩떡', color: 'peach' }, to: 'me', line: '같이 쉬자!' }],
+      friends: [{ id: 'f1', name: '콩떡', color: 'peach', species: 'fox', mood: 'calm', status: 'working', lastSeen: START }],
+      events: [{ id: 'e1', at: START, kind: 'wave', from: { id: 'f1', name: '콩떡', color: 'peach', species: 'fox' }, to: 'me', line: '같이 쉬자!' }],
     })
     return { value: { status: 200, ok: true, headers: {}, text: body } }
   })
@@ -351,7 +359,7 @@ test('the plaza polls the server and a friend’s wave reaches the pet', { optio
   await clock.advance(25_000)
   expect(calls.some(url => url === 'http://plaza.test/v1/poll')).toBe(true)
   const status = await $.command.run({ command: 'toko', args: 'plaza' } as never)
-  expect(status.text).toContain('콩떡')
+  expect(status.text).toContain('콩떡 (여우')
   const sent = await $.command.run({ command: 'toko', args: 'plaza heart 콩떡' } as never)
   expect(sent.text).toContain('보냈어요')
 })
@@ -440,5 +448,78 @@ test('/toko peers off keeps other sessions’ news to itself', async ($, on) => 
   await clock.advance(3000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /배포 확인/ })).toBeUndefined()
+})
+
+test('/toko draw spends coins, shelves the current pet and hatches a new egg', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 250, items: [], worn: [] } })
+  await begin($)
+  const drawn = await $.command.run({ command: 'toko', args: 'draw' } as never)
+  await clock.advance(9000)
+  expect((world.saved['toko:earn:session-1'] as { spent: number }).spent).toBe(200)
+  const pet = world.saved['toko:pet'] as { id: string; bones: { species: string }; growth: { stage: string } }
+  const shelf = (world.saved['toko:shelf'] as { id: string }[]).map(shelved => shelved.id)
+  if (String(drawn.text).startsWith('꽝')) {
+    expect(drawn.text).toContain('펭귄')
+    expect([pet.id, shelf]).toEqual([PET.id, []])
+  } else {
+    expect(drawn.text).toContain('알이 나왔어요')
+    expect([pet.id === PET.id, pet.growth.stage, shelf]).toEqual([false, 'baby', [PET.id]])
+  }
+  const again = await $.command.run({ command: 'toko', args: 'draw' } as never)
+  expect(again.text).toContain('모자라')
+})
+
+test('a full collection stops the draw before it takes any coins', async ($, on) => {
+  mock.clock(on, { now: START })
+  const species = ['cat', 'bear', 'chick', 'bunny', 'frog', 'fox', 'dragon', 'unicorn', 'ghost', 'phoenix', 'robot', 'axolotl']
+  const shelf = species.map((kind, index) => ({ ...FRIEND_PET, id: `pet-s${index}`, bones: { seed: 100 + index, species: kind } }))
+  const world = engine(on, { 'toko:pet': PET, 'toko:shelf': shelf, 'toko:wallet': { coins: 500, items: [], worn: [] } })
+  await begin($)
+  const drawn = await $.command.run({ command: 'toko', args: 'draw' } as never)
+  expect(drawn.text).toContain('다 모았어')
+  expect((world.saved['toko:earn:session-1'] as { spent: number } | undefined)?.spent ?? 0).toBe(0)
+  const pets = await $.command.run({ command: 'toko', args: 'pets' } as never)
+  expect(pets.text).toContain('12. 콩떡 · 우파루파 · 레어')
+})
+
+test('/toko pick brings a shelved pet back and shelves the current one', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:shelf': [FRIEND_PET] })
+  await begin($)
+  const picked = await $.command.run({ command: 'toko', args: 'pick 1' } as never)
+  expect(picked.text).toContain('콩떡')
+  expect((world.saved['toko:pet'] as { id: string }).id).toBe(FRIEND_PET.id)
+  expect((world.saved['toko:shelf'] as { id: string }[]).map(shelved => shelved.id)).toEqual([PET.id])
+  const missing = await $.command.run({ command: 'toko', args: 'pick 9' } as never)
+  expect(missing.text).toContain('보관함')
+})
+
+test('a pet saved before species existed loads as a cat', async ($, on) => {
+  mock.clock(on, { now: START })
+  const legacy = { bones: { seed: 7, color: 'mint', pattern: 'spots', eyes: 'round', rarity: 'rare' }, soul: PET.soul, growth: PET.growth }
+  const world = engine(on, { 'toko:pet': legacy })
+  await begin($)
+  const card = await $.command.run({ command: 'toko', args: 'card' } as never)
+  expect(card.text).toContain('고양이 · 노말')
+  await $.command.run({ command: 'toko', args: 'mute' } as never)
+  expect(world.saved['toko:pet']).toEqual({ ...legacy, id: 'pet-7', bones: { seed: 7, species: 'cat' } })
+})
+
+test('the room pane offers a draw and a button for each shelved pet', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:shelf': [FRIEND_PET] })
+  await begin($)
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const ui = await $.ui.mount({
+    plugin: 'toko',
+    component: 'Pane',
+    requestId: 'toko-room',
+    surface: 'terminal',
+    props: { title: '말랑의 방', isFocused: true, bodyColumns: 90, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
+  })
+  expect(await ui.find({ type: 'Button', key: 'draw' })).toBeDefined()
+  await ui.press({ key: `pick-${FRIEND_PET.id}` })
+  expect(await ui.find({ type: 'Text', text: /콩떡 · 여우/ })).toBeDefined()
   await ui.unmount()
 })
