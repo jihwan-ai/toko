@@ -43,6 +43,26 @@ export const readGitEvents = (operation: GitOperation | undefined): readonly Git
   return [...commit, ...push, ...pr]
 }
 
+export type EditLines = { added: number; removed: number }
+
+const EDIT_TOOLS: ReadonlySet<string> = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
+
+export const readEditLines = (tool: string, result: unknown): EditLines | null => {
+  if (!EDIT_TOOLS.has(tool) || typeof result !== 'object' || result === null) {
+    return null
+  }
+  const record = result as { type?: unknown; content?: unknown; structuredPatch?: unknown }
+  const patches: readonly unknown[] = Array.isArray(record.structuredPatch) ? record.structuredPatch : []
+  const lines = patches.flatMap(patch => {
+    const rows = typeof patch === 'object' && patch !== null ? (patch as { lines?: unknown }).lines : undefined
+    return Array.isArray(rows) ? rows.filter((row): row is string => typeof row === 'string') : []
+  })
+  if (lines.length === 0 && record.type === 'create' && typeof record.content === 'string') {
+    return { added: record.content.split('\n').length, removed: 0 }
+  }
+  return { added: lines.filter(line => line.startsWith('+')).length, removed: lines.filter(line => line.startsWith('-')).length }
+}
+
 export const failureStreak = (events: readonly { kind: string; detail: string }[], key: string): number => {
   const relevant = events.filter(event => (event.kind === 'test-fail' || event.kind === 'test-pass') && event.detail.startsWith(key))
   const lastPass = relevant.map(event => event.kind).lastIndexOf('test-pass')

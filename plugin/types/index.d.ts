@@ -48,6 +48,12 @@ export type TokoWallet = { coins: number; items: readonly string[]; worn: readon
 
 export type TokoEarn = { day: string; earned: number; health: number; spent: number }
 
+export type TokoCounts = Readonly<Record<string, number>>
+
+export type TokoTally = { day: string; counts: TokoCounts; notes: readonly string[]; costUsd: number }
+
+export type TokoStats = { total: TokoCounts; days: readonly TokoTally[] }
+
 export type TokoBudget = {
   day: string
   aiCalls: number

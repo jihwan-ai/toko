@@ -2,10 +2,10 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, purchase, reflect, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
+import { answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, purchase, reflect, refreshShared, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { SHOP, shopItem } from './lib/economy'
-import { readGitEvents, readTestOutcome } from './lib/perceive'
+import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { nameProblem } from './lib/persona'
 import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
@@ -98,6 +98,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
     if (ctx.ticks % THINK_EVERY === 0) {
       await now($, ctx)
       await resetDayIfNeeded($, brain)
+      await refreshShared($, brain)
       await think($, brain)
       await pollPlaza($, brain)
       await sync($, brain)
@@ -217,6 +218,10 @@ export async function toolRan($: $, ctx: Ctx, tool: string, command: string | un
   const brain = ctx.brain
   if (tool === 'Agent' || tool === 'Task') {
     onSubagents(brain, 1)
+  }
+  const edited = isError ? null : readEditLines(tool, result)
+  if (edited !== null) {
+    onEdit(brain, edited.added, edited.removed)
   }
   if (command === undefined) {
     return
