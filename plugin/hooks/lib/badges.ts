@@ -15,6 +15,7 @@ export const BADGES: readonly BadgeDef[] = [
   { id: 'merge-10', name: '머지 장인', description: 'PR 머지 10번', key: 'merge', goal: 10, reward: 60 },
   { id: 'commit-100', name: '백 걸음', description: '커밋 100번', key: 'commit', goal: 100, reward: 50 },
   { id: 'wrapup-5', name: '정시 퇴근', description: '마무리 정리 5번', key: 'wrapup', goal: 5, reward: 50 },
+  { id: 'quest-7', name: '성실한 하루들', description: '오늘의 퀘스트를 다 한 날 7일', key: 'quest-day', goal: 7, reward: 60 },
   { id: 'bug-30', name: '벌레 사냥꾼', description: '벌레 30마리 잡기', key: 'bug', goal: 30, reward: 30 },
   { id: 'bug-200', name: '벌레 박사', description: '벌레 200마리 잡기', key: 'bug', goal: 200, reward: 80 },
   { id: 'fed-20', name: '단골 요리사', description: '밥 20번 주기', key: 'fed', goal: 20, reward: 20 },

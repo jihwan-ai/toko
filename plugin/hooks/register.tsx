@@ -153,7 +153,14 @@ export const register: Register = (on, options) => {
       ctx.band = null
       return next(e)
     }
-    const [mood, bubble, wallet, countdown, game] = await Promise.all([read($, moodAtom), read($, bubbleAtom), read($, walletAtom), read($, countdownAtom), read($, gameAtom)])
+    const [mood, bubble, wallet, countdown, game, progress] = await Promise.all([
+      read($, moodAtom),
+      read($, bubbleAtom),
+      read($, walletAtom),
+      read($, countdownAtom),
+      read($, gameAtom),
+      read($, progressAtom),
+    ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
     const columns = Math.min(512, Math.max(1, e.props.bodyColumns))
@@ -163,6 +170,7 @@ export const register: Register = (on, options) => {
       `${nameOf(pet) ?? (pet.soul === null ? '알' : UNNAMED)} ${KAOMOJI[mood]}`,
       pet.growth.stage === 'egg' ? '부화 중' : MOOD_LABEL[mood],
       `코인 ${wallet?.coins ?? 0}`,
+      ...(progress === null || pet.soul === null ? [] : [`퀘스트 ${progress.quests.filter(quest => quest.isDone).length}/${progress.quests.length}`]),
       ...(countdown === null ? [] : [`${countdown.label} ${seconds(countdown.endsAt)}초`]),
       ...(game === null ? [] : [`벌레 ${game.caught}마리 · ${seconds(game.endsAt)}초`]),
     ].join(' · ')
@@ -297,6 +305,18 @@ export const register: Register = (on, options) => {
           </Text>
           {lessons.length > 0 && <Text dimColor>배운 것: {lessons.at(-1)}</Text>}
         </Box>
+        {progress !== null && progress.quests.length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              오늘의 퀘스트 {progress.quests.filter(quest => quest.isDone).length}/{progress.quests.length}
+            </Text>
+            {progress.quests.map(quest => (
+              <Text key={`quest-${quest.id}`} dimColor={quest.isDone}>
+                {`${quest.isDone ? '✓' : '·'} ${quest.label} ${quest.progress}/${quest.goal}`}
+              </Text>
+            ))}
+          </Box>
+        )}
         {progress !== null && (
           <Box flexDirection="column">
             <Text weight="bold">

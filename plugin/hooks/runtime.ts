@@ -12,6 +12,7 @@ import { nameProblem } from './lib/persona'
 import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
 import { findFriend } from './lib/plaza'
 import type { PlazaAction } from './lib/plaza'
+import { questText } from './lib/quests'
 import { hashText } from './lib/random'
 import type { Canvas } from './lib/raster'
 import { createCanvas, encodeCells } from './lib/raster'
@@ -282,6 +283,7 @@ export const HELP = [
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
   '/toko card — 펫 카드',
+  '/toko quests — 오늘의 퀘스트',
   '/toko badges — 업적',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
@@ -441,6 +443,8 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: `${shopItem(value)?.name} 착용을 바꿨어요.` }
     case 'card':
       return { text: card(brain) }
+    case 'quests':
+      return { text: questText(progressOf(brain).quests) }
     case 'badges':
       return { text: badgeText(progressOf(brain).badges) }
     case 'name': {

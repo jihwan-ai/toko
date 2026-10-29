@@ -42,8 +42,10 @@ import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
 import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook } from './lib/scene'
 import type { Candidate, OfferKind } from './lib/sim'
+import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
+import type { QuestsPaid } from './lib/quests'
 import { BREAK_KINDS, ENCOUNTER_LINES, candidatesOf, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
-import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, totalOf } from './lib/stats'
+import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from './lib/stats'
 import type { StatKey } from './lib/stats'
 import { HOUR, MINUTE, clockText, dayKey, hourOf } from './lib/time'
 
@@ -77,6 +79,7 @@ export const KEY = {
   stats: 'toko:stats',
   tallyPrefix: 'toko:tally:',
   badges: 'toko:badges',
+  quests: 'toko:quests',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -127,6 +130,7 @@ export type Brain = {
   isProgressDirty: boolean
   lastSharedAt: number
   badges: Unlocked
+  questsPaid: QuestsPaid
   mood: TokoMood
   isLoaded: boolean
   isTurnRunning: boolean
@@ -181,6 +185,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   isProgressDirty: false,
   lastSharedAt: 0,
   badges: {},
+  questsPaid: { day: '', ids: [] },
   mood: 'calm',
   isLoaded: false,
   isTurnRunning: false,
@@ -229,7 +234,7 @@ export const today = (brain: Brain): string => dayKey(brain.now)
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, keys] = await Promise.all([
+  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.needs),
     $.store.get(KEY.memory),
@@ -240,6 +245,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.plazaId),
     $.store.get(KEY.stats),
     $.store.get(KEY.badges),
+    $.store.get(KEY.quests),
     $.store.keys(),
   ])
   brain.pet = isPet(pet) ? { ...pet, growth: advanceDay(pet.growth, day) } : null
@@ -260,6 +266,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.tally = emptyTally(day)
   brain.lastSharedAt = now
   brain.badges = asUnlocked(badges)
+  brain.questsPaid = asPaid(questsPaid, day)
   brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
@@ -315,6 +322,8 @@ export async function refreshShared($: $, brain: Brain): Promise<void> {
   const tallies = await Promise.all(keys.map(async key => asTally(await $.store.get(key))))
   brain.otherTallies = tallies.flatMap(tally => (tally !== null && tally.day === today(brain) ? [tally] : []))
   brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
+  const paid = asPaid(await $.store.get(KEY.quests), today(brain)).ids
+  brain.questsPaid = { day: today(brain), ids: [...new Set([...paid, ...(brain.questsPaid.day === today(brain) ? brain.questsPaid.ids : [])])] }
   brain.isProgressDirty = true
 }
 
@@ -331,7 +340,41 @@ const jot = (brain: Brain, text: string): void => {
 
 export const progressCounts = (brain: Brain): TokoCounts => totalOf(brain.stats, [...brain.otherTallies, brain.tally])
 
-export const progressOf = (brain: Brain): TokoProgress => ({ badges: badgeViews(progressCounts(brain), brain.badges) })
+export const questsOf = (brain: Brain) => questsFor(today(brain), brain.pet?.bones.seed ?? 0, isPlazaReady(brain))
+
+export const progressOf = (brain: Brain): TokoProgress => ({
+  badges: badgeViews(progressCounts(brain), brain.badges),
+  quests: questViews(questsOf(brain), todayOf(brain.stats, [...brain.otherTallies, brain.tally], today(brain)).counts),
+})
+
+async function awardQuests($: $, brain: Brain): Promise<readonly string[]> {
+  const day = today(brain)
+  const views = progressOf(brain).quests
+  const paid = brain.questsPaid.day === day ? brain.questsPaid.ids : []
+  if (questsDue(views, paid).length === 0) {
+    return []
+  }
+  const stored = asPaid(await $.store.get(KEY.quests), day).ids
+  const known = [...new Set([...stored, ...paid])]
+  const fresh = questsDue(views, known)
+  brain.questsPaid = { day, ids: [...known, ...fresh] }
+  await $.store.set(KEY.quests, brain.questsPaid)
+  const done = views.filter(view => fresh.includes(view.id))
+  const isAllDone = fresh.includes(ALL_DONE)
+  if (done.length === 0 && !isAllDone) {
+    return []
+  }
+  healthReward(brain, done.length * QUEST_REWARD + (isAllDone ? QUEST_BONUS : 0))
+  remember(brain, 'quest', done.map(view => view.id).join(', '), 1)
+  const phrases = done.length === 0 ? [] : [`퀘스트 완료: ${done.map(view => view.label).join(', ')} +${done.length * QUEST_REWARD} 코인`]
+  if (!isAllDone) {
+    return phrases
+  }
+  count(brain, 'quest-day')
+  const gift = grantGift(brain)
+  act(brain, direct.giftOpen(), PRIORITY.event)
+  return [...phrases, `오늘 퀘스트 다 했어! +${QUEST_BONUS} 코인, 선물로 ${shopItem(gift)?.name ?? gift}`]
+}
 
 async function awardBadges($: $, brain: Brain): Promise<readonly string[]> {
   const earned = newBadges(progressCounts(brain), brain.badges)
@@ -367,7 +410,7 @@ export async function checkProgress($: $, brain: Brain): Promise<void> {
     return
   }
   brain.isProgressDirty = false
-  const phrases = await awardBadges($, brain)
+  const phrases = [...(await awardQuests($, brain)), ...(await awardBadges($, brain))]
   await update($, progressAtom, () => progressOf(brain))
   await announce($, brain, phrases)
 }
@@ -828,13 +871,18 @@ async function growIfReady($: $, brain: Brain): Promise<void> {
 
 const GIFT_POOL = ['cookie', 'cookie', 'rice-cake', 'watermelon', 'beanie', 'ribbon', 'plant']
 
-export async function openGift($: $, brain: Brain): Promise<void> {
+const grantGift = (brain: Brain): string => {
   const unowned = GIFT_POOL.filter(id => shopItem(id)?.kind === 'snack' || !brain.wallet.items.includes(id))
   const id = pick(brain.random, unowned.length > 0 ? unowned : ['cookie'])
   brain.wallet = { ...brain.wallet, items: [...brain.wallet.items, id] }
-  brain.budget = { ...brain.budget, gifts: brain.budget.gifts + 1 }
   remember(brain, 'gift', id)
   count(brain, 'gift')
+  return id
+}
+
+export async function openGift($: $, brain: Brain): Promise<void> {
+  const id = grantGift(brain)
+  brain.budget = { ...brain.budget, gifts: brain.budget.gifts + 1 }
   act(brain, direct.giftOpen(), PRIORITY.event)
   await say($, brain, `${shopItem(id)?.name ?? id}! 소지품에 넣어 둘게`)
 }

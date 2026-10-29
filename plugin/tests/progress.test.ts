@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { BADGES, badgeViews, closestBadges, newBadges } from '../hooks/lib/badges'
 import { readEditLines } from '../hooks/lib/perceive'
+import { ALL_DONE, questViews, questsDue, questsFor } from '../hooks/lib/quests'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from '../hooks/lib/stats'
 
 test('a tally folds into the record by day and into the lifetime total', async () => {
@@ -55,4 +56,25 @@ test('the closest locked badges come first', async () => {
   const views = badgeViews({ break: 9, commit: 10, bug: 29 }, { 'first-break': 1 })
   expect(views.find(view => view.id === 'first-break')?.at).toBe(1)
   expect(closestBadges(views, 2).map(view => view.id)).toEqual(['bug-30', 'break-10'])
+})
+
+test('the day and the pet pick the same three quests in every terminal, one of each kind', async () => {
+  const quests = questsFor('2026-10-29', 7, true)
+  expect(questsFor('2026-10-29', 7, true)).toEqual(quests)
+  expect(quests.map(quest => quest.group)).toEqual(['rest', 'work', 'care'])
+  for (let seed = 0; seed < 40; seed += 1) {
+    expect(questsFor('2026-10-29', seed, false).some(quest => quest.needsPlaza === true)).toBe(false)
+  }
+  const days = new Set(Array.from({ length: 10 }, (_, day) => questsFor(`2026-11-${String(day + 1).padStart(2, '0')}`, 7, true).map(quest => quest.id).join()))
+  expect(days.size > 1).toBe(true)
+})
+
+test('finished quests come due once, and the full set adds the bonus', async () => {
+  const quests = questsFor('2026-10-29', 7, false)
+  const keys = Object.fromEntries(quests.map(quest => [quest.key, quest.goal]))
+  const half = questViews(quests, { [quests[0]?.key ?? '']: quests[0]?.goal ?? 1 })
+  expect(questsDue(half, [])).toEqual([quests[0]?.id])
+  const all = questViews(quests, keys)
+  expect(questsDue(all, [])).toEqual([...quests.map(quest => quest.id), ALL_DONE])
+  expect(questsDue(all, [...quests.map(quest => quest.id), ALL_DONE])).toEqual([])
 })

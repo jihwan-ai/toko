@@ -132,9 +132,11 @@ test('a test that failed three times and then passes unlocks 역전승, pays coi
   expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(20)
 })
 
+const QUESTS_PAID = { day: '2026-10-29', ids: ['stretch', 'eye-rest', 'water', 'test-pass', 'commit', 'fed', 'played', 'cheer', 'all'] }
+
 test('a badge another terminal already unlocked is not paid twice', async ($, on) => {
   const clock = mock.clock(on, { now: START })
-  const world = engine(on, { 'toko:pet': PET })
+  const world = engine(on, { 'toko:pet': PET, 'toko:quests': QUESTS_PAID })
   await begin($)
   await $.command.run({ command: 'toko', args: 'event water' } as never)
   world.memory.set('toko:badges', { 'first-break': START })
@@ -144,4 +146,47 @@ test('a badge another terminal already unlocked is not paid twice', async ($, on
   await ui.unmount()
   await end($)
   expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(5)
+})
+
+test('today’s quests show on the band, and finishing all three pays out once with a gift', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 50, items: [], worn: [] } })
+  shell(on, { isError: false, text: 'ok', gitOperation: { commit: { sha: 'abc1234def', kind: 'committed', branch: 'main' } } })
+  on('http.fetch', () => ({ value: { status: 202, ok: true, headers: {}, text: '{}' } }))
+  await begin($)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /퀘스트 0\/3/ })).toBeDefined()
+  await band.unmount()
+  const listed = (await $.command.run({ command: 'toko', args: 'quests' } as never)).text ?? ''
+  const takeBreak = async (kind: string, ms: number) => {
+    await $.command.run({ command: 'toko', args: `event ${kind}` } as never)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    await ui.press({ key: 'choice-accept' })
+    await ui.unmount()
+    await clock.advance(ms)
+  }
+  for (const label of listed.split('\n').slice(1).map(line => line.slice(2).replace(/ \d+\/\d+$/, ''))) {
+    if (label === '기지개 켜기') await takeBreak('stretch', 32_000)
+    if (label === '먼 곳 보기') {
+      await takeBreak('eye-rest', 22_000)
+      await takeBreak('eye-rest', 22_000)
+    }
+    if (label === '물 한 모금') await takeBreak('water', 500)
+    if (label === '테스트 통과') await bash($, 'npm test')
+    if (label === '커밋하기') await bash($, 'git commit -m done')
+    if (label === '토코 밥 주기') await $.command.run({ command: 'feed', args: '' } as never)
+    if (label === '같이 놀기') await $.command.run({ command: 'play', args: '' } as never)
+    if (label === '광장 친구에게 손짓') await $.command.run({ command: 'toko', args: 'plaza wave all' } as never)
+  }
+  await clock.advance(2500)
+  expect((await $.command.run({ command: 'toko', args: 'quests' } as never)).text).toContain('오늘의 퀘스트 3/3')
+  expect((world.saved['toko:quests'] as { ids: string[] }).ids).toContain('all')
+  const after = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await after.find({ type: 'Text', text: /퀘스트 3\/3/ })).toBeDefined()
+  await after.unmount()
+  await clock.advance(70_000)
+  await end($)
+  const tally = world.saved['toko:tally:session-1'] as { counts: Record<string, number> }
+  expect(tally.counts['quest-day']).toBe(1)
+  expect((world.saved['toko:wallet'] as { items: string[] }).items.length > 0).toBe(true)
 })
