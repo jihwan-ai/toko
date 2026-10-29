@@ -1,6 +1,6 @@
-import type { TokoFriend, TokoMood, TokoSpecies } from '../../types'
+import type { TokoFriend, TokoMood, TokoSpecies, TokoVisitor } from '../../types'
 
-import { isSpecies } from './pet'
+import { SPECIES, isSpecies } from './pet'
 
 export const PLAZA_POLL_MS = 20_000
 export const FRIEND_TTL_MS = 90_000
@@ -117,18 +117,30 @@ export const plazaEndpoint = (base: string, path: string): string | null => {
 
 export const isForMe = (event: PlazaEvent, myId: string): boolean => event.to === null || event.to === myId
 
-export const eventText = (event: PlazaEvent): string => {
-  const verb: Readonly<Record<PlazaEvent['kind'], string>> = {
-    wave: '손을 흔들었어',
-    heart: '하트를 보냈어',
-    snack: '간식을 나눠 줬어',
-    'stretch-call': '다 같이 기지개 켜자고 해',
-    cheer: '응원을 보냈어',
-    join: '광장에 왔어',
-    leave: '광장을 떠났어',
-  }
-  return `${event.from.name}: ${event.line || verb[event.kind]}`
+const VERB: Readonly<Record<PlazaEvent['kind'], string>> = {
+  wave: '손을 흔들었어',
+  heart: '하트를 보냈어',
+  snack: '간식을 나눠 줬어',
+  'stretch-call': '다 같이 기지개 켜자고 해',
+  cheer: '응원을 보냈어',
+  join: '광장에 왔어',
+  leave: '광장을 떠났어',
 }
+
+export const eventText = (event: PlazaEvent): string => `${event.from.name}: ${event.line || VERB[event.kind]}`
+
+export const VISITOR_SHOW_MS = 15_000
+export const VISITOR_STALE_MS = 30 * 60_000
+
+export const visitorOf = (event: PlazaEvent, at: number): TokoVisitor => ({ name: event.from.name, species: event.from.species, kind: event.kind, line: event.line, at })
+
+export const visitorText = (visitor: TokoVisitor): string => {
+  const verb = VERB[visitor.kind as PlazaEvent['kind']] ?? VERB.wave
+  return `${visitor.name}(${SPECIES[visitor.species].label}) (•ᴗ•)ﾉ ${verb}${visitor.line.length > 0 ? ` — ${visitor.line}` : ''}`
+}
+
+export const shouldDismissVisitor = (visitor: TokoVisitor, visibleMs: number, now: number): boolean =>
+  visibleMs >= VISITOR_SHOW_MS || now - visitor.at >= VISITOR_STALE_MS
 
 export const findFriend = (friends: readonly TokoFriend[], query: string): TokoFriend | undefined => {
   const needle = query.trim()

@@ -7,6 +7,7 @@ import type {
   TokoEarn,
   TokoEarning,
   TokoFriend,
+  TokoVisitor,
   TokoGame,
   TokoMemory,
   TokoMood,
@@ -30,7 +31,7 @@ import type { PeerSignal } from './lib/peers'
 import { RARITY_LABEL, SPECIES, SPECIES_IDS, advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage, rarityOf, rollSpecies, upgradePet } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
-import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, parseSnapshot, plazaEndpoint, wireColor } from './lib/plaza'
+import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, parseSnapshot, plazaEndpoint, shouldDismissVisitor, visitorOf, wireColor } from './lib/plaza'
 import type { PlazaAction, PlazaEvent, PlazaStatus } from './lib/plaza'
 import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
@@ -54,6 +55,7 @@ const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 
 type $ = EngineInterface
 
@@ -147,6 +149,8 @@ export type Brain = {
   seenEvents: readonly string[]
   promptLabel: string
   peersSeenAt: number
+  visitor: TokoVisitor | null
+  visitorVisibleMs: number
   isDirty: boolean
 }
 
@@ -198,6 +202,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   seenEvents: [],
   promptLabel: '',
   peersSeenAt: 0,
+  visitor: null,
+  visitorVisibleMs: 0,
   isDirty: false,
 })
 
@@ -1315,6 +1321,22 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   }
   if (!isQuietNow(brain.settings, hourOf(brain.now))) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')
+  }
+  brain.visitor = visitorOf(event, brain.now)
+  brain.visitorVisibleMs = 0
+  await update($, visitorAtom, () => brain.visitor)
+}
+
+export async function tendVisitor($: $, brain: Brain, elapsedMs: number): Promise<void> {
+  if (brain.visitor === null) {
+    return
+  }
+  if (brain.isTurnRunning) {
+    brain.visitorVisibleMs += elapsedMs
+  }
+  if (shouldDismissVisitor(brain.visitor, brain.visitorVisibleMs, brain.now)) {
+    brain.visitor = null
+    await update($, visitorAtom, () => null)
   }
 }
 

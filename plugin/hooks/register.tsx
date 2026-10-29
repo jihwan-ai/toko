@@ -6,7 +6,7 @@ import type { TokoMood } from '../types'
 import { ensureScene } from './brain'
 import { SHOP, SPEND, shopItem } from './lib/economy'
 import { RARITY_LABEL, SPECIES, STAGE_LABEL, UNNAMED, nameOf, rarityOf } from './lib/pet'
-import { ACTION_LABEL } from './lib/plaza'
+import { ACTION_LABEL, visitorText } from './lib/plaza'
 import { encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, resize } from './lib/scene'
 import { KAOMOJI } from './lib/sprites'
@@ -58,6 +58,7 @@ const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
+const visitorAtom = atom({ plugin: 'toko', key: 'visitor' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -230,7 +231,13 @@ export const register: Register = (on, options) => {
     )
   })
 
-  on('ui.render', { component: 'Spinner' }, async ($, e, next) => ((await read($, ouchAtom)) ? next({ ...e, props: { ...e.props, message: '아야…' } }) : next(e)))
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (await read($, ouchAtom)) {
+      return next({ ...e, props: { ...e.props, message: '아야…' } })
+    }
+    const visitor = await read($, visitorAtom)
+    return visitor === null ? next(e) : next({ ...e, props: { ...e.props, message: visitorText(visitor) } })
+  })
 
   on('ui.render', { component: 'TurnDuration' }, async ($, e, next) => {
     const earnings = await read($, earningsAtom)

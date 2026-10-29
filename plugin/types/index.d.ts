@@ -87,6 +87,8 @@ export type TokoCountdown = { label: string; endsAt: number }
 
 export type TokoFriend = { id: string; name: string; species: TokoSpecies; mood: TokoMood; status: string; lastSeen: number }
 
+export type TokoVisitor = { name: string; species: TokoSpecies; kind: string; line: string; at: number }
+
 export type TokoPlazaView = {
   isOnline: boolean
   friends: readonly TokoFriend[]
@@ -109,6 +111,7 @@ declare module 'claude-code' {
       game: TokoGame | null
       countdown: TokoCountdown | null
       plaza: TokoPlazaView | null
+      visitor: TokoVisitor | null
       lessons: readonly string[]
     }
   }

@@ -1,6 +1,6 @@
 {
   "name": "toko",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A pixel companion that lives above your Claude Code prompt and helps you rest between turns",
   "author": {
     "name": "junghyeon95"

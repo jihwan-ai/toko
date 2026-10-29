@@ -211,7 +211,7 @@ docker build -t toko-plaza .     # 컨테이너로 띄울 때. uid 1000, HOME=/a
 
 ```bash
 claude plugin validate plugin   # 매니페스트와 훅 모듈을 엔진이 읽는 방식으로 검사
-claude plugin test plugin       # 플러그인 테스트 50개(경제 · 게이트 · 렌더링 · 애완동물 · 분풀이 · 이름 짓기 · 광장 · 옆 세션 소식 · 뽑기 등)
+claude plugin test plugin       # 플러그인 테스트 51개(경제 · 게이트 · 렌더링 · 애완동물 · 분풀이 · 이름 짓기 · 광장 · 옆 세션 소식 · 뽑기 등)
 cd server && bun test           # 광장 서버 테스트 9개
 ```
 

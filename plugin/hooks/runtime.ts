@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoPet, TokoSettings } from '../types'
 
-import { answerOffer, apologize, askName, balance, catchInGame, createBrain, drawPet, ensureScene, feed, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPeers, pollPlaza, purchase, reflect, remember, resetDayIfNeeded, save, sendPlaza, signalPeers, startBonk, startHatch, switchPet, sync, think, toggleWear } from './brain'
+import { answerOffer, apologize, askName, balance, catchInGame, createBrain, drawPet, ensureScene, feed, forgetSignal, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPeers, pollPlaza, purchase, reflect, remember, resetDayIfNeeded, save, say, sendPlaza, signalPeers, startBonk, startHatch, switchPet, sync, tendVisitor, think, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { SHOP, SPEND, shopItem } from './lib/economy'
 import { readGitEvents, readTestOutcome } from './lib/perceive'
@@ -102,6 +102,7 @@ export async function frame($: $, ctx: Ctx): Promise<void> {
       await think($, brain)
       await pollPlaza($, brain)
       await pollPeers($, brain)
+      await tendVisitor($, brain, TICK_MS * THINK_EVERY)
       await sync($, brain)
     }
     if (ctx.ticks % SAVE_EVERY === 0 && brain.isDirty) {
@@ -560,7 +561,7 @@ export async function wearItem($: $, ctx: Ctx, id: string): Promise<void> {
 
 export async function plazaAct($: $, ctx: Ctx, action: PlazaAction, to: string | null): Promise<void> {
   await now($, ctx)
-  await sendPlaza($, ctx.brain, action, to)
+  await say($, ctx.brain, await sendPlaza($, ctx.brain, action, to))
 }
 
 export async function gameMove($: $, ctx: Ctx, delta: number): Promise<void> {

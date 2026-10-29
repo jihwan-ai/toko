@@ -450,6 +450,31 @@ test('/toko peers off keeps other sessions’ news to itself', async ($, on) => 
   expect(await ui.find({ type: 'Text', text: /배포 확인/ })).toBeUndefined()
 })
 
+test('a friend’s wave rides the spinner while a turn runs, then steps aside', { options: { serverUrl: 'http://plaza.test' } }, async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET, 'toko:plaza-id': 'me' })
+  drawEngine(on)
+  on('http.fetch', () => {
+    const body = JSON.stringify({
+      now: START,
+      friends: [{ id: 'f1', name: '콩떡', color: 'peach', species: 'fox', mood: 'calm', status: 'working', lastSeen: START }],
+      events: [{ id: 'e1', at: START, kind: 'wave', from: { id: 'f1', name: '콩떡', color: 'peach', species: 'fox' }, to: 'me', line: '같이 쉬자!' }],
+    })
+    return { value: { status: 200, ok: true, headers: {}, text: body } }
+  })
+  await begin($)
+  await clock.advance(25_000)
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
+  const props = { word: 'Baking', message: null, suffix: '…', mode: 'responding' }
+  const spinner = await $.ui.mount({ plugin: 'toko', component: 'Spinner', requestId: 'agent', surface: 'terminal', props } as never)
+  expect(await spinner.find({ type: 'Text', text: /콩떡\(여우\).*손을 흔들었어 — 같이 쉬자!/ })).toBeDefined()
+  await spinner.unmount()
+  await clock.advance(30_000)
+  const later = await $.ui.mount({ plugin: 'toko', component: 'Spinner', requestId: 'agent', surface: 'terminal', props } as never)
+  expect(await later.find({ type: 'Text', text: /콩떡/ })).toBeUndefined()
+  await later.unmount()
+})
+
 test('/toko draw spends coins, shelves the current pet and hatches a new egg', async ($, on) => {
   const clock = mock.clock(on, { now: START })
   const world = engine(on, { 'toko:pet': PET, 'toko:wallet': { coins: 250, items: [], worn: [] } })
