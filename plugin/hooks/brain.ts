@@ -11,6 +11,7 @@ import type {
   TokoFriend,
   TokoGame,
   TokoMemory,
+  TokoMeter,
   TokoMood,
   TokoNeeds,
   TokoOffer,
@@ -34,6 +35,8 @@ import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earn
 import type { TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
+import { meterOf } from './lib/meter'
+import type { Limit } from './lib/meter'
 import { failureStreak } from './lib/perceive'
 import { advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage } from './lib/pet'
 import * as persona from './lib/persona'
@@ -64,6 +67,7 @@ const earningsAtom = atom({ plugin: 'toko', key: 'earnings' } as const, [])
 const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
+const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
@@ -99,6 +103,7 @@ export const DEFAULT_SETTINGS: TokoSettings = {
   isNotifyOn: false,
   isMoodSensing: false,
   isPlazaOn: true,
+  isMeterOn: true,
 }
 
 const emptyMemory = (): TokoMemory => ({
@@ -151,6 +156,9 @@ export type Brain = {
   lastEncounterAt: number
   lastPassAfterFailAt: number | null
   rateLimitPercent: number
+  meter: TokoMeter | null
+  costBase: number
+  lastCostUsd: number
   isFullShown: boolean
   isThinking: boolean
   isHatching: boolean
@@ -209,6 +217,9 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   lastEncounterAt: 0,
   lastPassAfterFailAt: null,
   rateLimitPercent: 0,
+  meter: null,
+  costBase: 0,
+  lastCostUsd: 0,
   isFullShown: false,
   isThinking: false,
   isHatching: false,
@@ -323,6 +334,7 @@ async function rollTally($: $, brain: Brain, day: string): Promise<void> {
   }
   brain.tally = emptyTally(day)
   brain.otherTallies = []
+  brain.costBase = brain.lastCostUsd
   await $.store.set(tallyKey(brain), brain.tally)
 }
 
@@ -466,6 +478,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, lessonsAtom, () => brain.memory.lessons),
     update($, progressAtom, () => progressOf(brain)),
     update($, focusAtom, () => brain.focus),
+    update($, meterAtom, () => brain.meter),
   ])
 }
 
@@ -1233,8 +1246,15 @@ export const onEdit = (brain: Brain, added: number, removed: number): void => {
   count(brain, 'removed', removed)
 }
 
-export async function onMeasure($: $, brain: Brain, contextPercent: number | undefined, rateLimitPercent: number): Promise<void> {
-  brain.rateLimitPercent = rateLimitPercent
+export async function onMeasure($: $, brain: Brain, contextPercent: number | undefined, limits: readonly Limit[], costUsd: number | undefined): Promise<void> {
+  brain.rateLimitPercent = limits.reduce((max, limit) => Math.max(max, limit.percentUsed), 0)
+  brain.meter = meterOf(contextPercent, costUsd, limits)
+  await update($, meterAtom, () => brain.meter)
+  if (costUsd !== undefined) {
+    brain.lastCostUsd = costUsd
+    brain.tally = { ...brain.tally, costUsd: Math.max(0, costUsd - brain.costBase) }
+    brain.isDirty = true
+  }
   if (contextPercent !== undefined && contextPercent >= 85 && !brain.isFullShown) {
     brain.isFullShown = true
     act(brain, direct.full(), PRIORITY.reaction)

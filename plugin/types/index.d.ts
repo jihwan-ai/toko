@@ -85,6 +85,7 @@ export type TokoSettings = {
   isNotifyOn: boolean
   isMoodSensing: boolean
   isPlazaOn: boolean
+  isMeterOn: boolean
 }
 
 export type TokoChoice = { key: string; label: string; hotkey: string }
@@ -107,6 +108,8 @@ export type TokoGame = { endsAt: number; caught: number; missed: number }
 export type TokoCountdown = { label: string; endsAt: number }
 
 export type TokoFocus = { endsAt: number; minutes: number }
+
+export type TokoMeter = { contextPercent: number | null; costUsd: number | null; limitLabel: string | null; limitPercent: number | null; resetsAt: string | null }
 
 export type TokoFriend = { id: string; name: string; color: TokoColor; mood: TokoMood; status: string; lastSeen: number }
 
@@ -134,6 +137,7 @@ declare module 'claude-code' {
       lessons: readonly string[]
       progress: TokoProgress | null
       focus: TokoFocus | null
+      meter: TokoMeter | null
     }
   }
 }

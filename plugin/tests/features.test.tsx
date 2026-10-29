@@ -45,6 +45,7 @@ const engine = (on: On, store: Record<string, unknown>): World => {
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'session-1' }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
   on('settings.read', () => ({ value: {} }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('tool.register', (_, e) => ({ value: { tool: `mcp__toko__${e.name}` } }))
@@ -270,4 +271,42 @@ test('a scene seen for the first time joins the dex with coins, and a shiny one 
   await end($)
   expect((world.saved['toko:dex'] as Record<string, { seen: number }>).butterfly?.seen).toBe(3)
   expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(5 + 15 + 30)
+})
+
+test('the band carries a context, cost and limit meter that turns yellow as it fills, and /toko meter off hides it', async ($, on) => {
+  mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET })
+  on('session.usage', () => ({ value: { startedAt: START, context: { window: 200_000 }, rateLimits: [], cost: { usd: 0.24 } } }))
+  await begin($)
+  await $.session.measure({
+    context: { window: 200_000, tokens: 150_000, percent: 75 },
+    rateLimits: [{ kind: 'five_hour', percentUsed: 82, resetsAt: '2026-10-29T08:30:00Z' }],
+    cost: { usd: 1.24 },
+    changed: ['context', 'rateLimits', 'cost'],
+  } as never)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const gauge = await band.find({ type: 'Text', text: /컨텍스트 75% · \$1\.24 · 5시간 82% \(\d\d:\d\d 리셋\)/ })
+  expect(gauge?.props.color).toBe('yellow')
+  await band.unmount()
+  expect((await $.command.run({ command: 'toko', args: 'meter off' } as never)).text).toContain('껐어요')
+  const hidden = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await hidden.find({ type: 'Text', text: /컨텍스트/ })).toBeUndefined()
+  await hidden.unmount()
+  await end($)
+  expect((world.saved['toko:tally:session-1'] as { costUsd: number }).costUsd).toBe(1)
+})
+
+test('with the band hidden, the prompt hint still carries the context percent', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET })
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>{String((e.props as { tail?: string }).tail ?? '')}</Text>
+  })
+  await begin($)
+  await $.session.measure({ context: { window: 200_000, percent: 64 }, rateLimits: [], changed: ['context'] } as never)
+  await $.command.run({ command: 'toko', args: 'hide' } as never)
+  const hint = await $.ui.mount({ plugin: 'toko', component: 'PromptHint', requestId: 'hint', surface: 'terminal', props: {} } as never)
+  expect(await hint.find({ type: 'Text', text: /말랑 .* 0c · 64%/ })).toBeDefined()
+  await hint.unmount()
 })

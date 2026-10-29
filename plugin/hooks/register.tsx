@@ -6,6 +6,7 @@ import type { TokoMood } from '../types'
 import { ensureScene } from './brain'
 import { closestBadges } from './lib/badges'
 import { SHOP, shopItem } from './lib/economy'
+import { meterLevel, meterText } from './lib/meter'
 import { STAGE_LABEL, UNNAMED, nameOf } from './lib/pet'
 import { ACTION_LABEL } from './lib/plaza'
 import { encodeCells } from './lib/raster'
@@ -58,6 +59,7 @@ const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
+const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -127,7 +129,7 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'mcp__toko__apologize' }, async $ => ({ result: await apologized($, ctx) })).catch(() => ({ result: 'Toko heard the apology.' }))
 
   on('session.measure', async ($, e, next) => {
-    await measured($, ctx, e.context.percent, e.rateLimits)
+    await measured($, ctx, e.context.percent, e.rateLimits, e.cost?.usd)
     return next(e)
   })
 
@@ -157,7 +159,7 @@ export const register: Register = (on, options) => {
       ctx.band = null
       return next(e)
     }
-    const [mood, bubble, wallet, countdown, game, progress, focus] = await Promise.all([
+    const [mood, bubble, wallet, countdown, game, progress, focus, meter] = await Promise.all([
       read($, moodAtom),
       read($, bubbleAtom),
       read($, walletAtom),
@@ -165,6 +167,7 @@ export const register: Register = (on, options) => {
       read($, gameAtom),
       read($, progressAtom),
       read($, focusAtom),
+      read($, meterAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
@@ -202,6 +205,18 @@ export const register: Register = (on, options) => {
               <Button key="play" label="놀기" hotkey="p" onPress={press(() => playCommand($, ctx))} />,
               <Button key="room" label="방" hotkey="r" onPress={press(() => roomOpenedFromBand($, ctx))} />,
             ]
+    const gauge = settings?.isMeterOn === false || meter === null ? '' : meterText(meter)
+    const level = meter === null ? 'normal' : meterLevel(meter)
+    const controls = (
+      <Box justifyContent="space-between">
+        <Box gap={1}>{buttons}</Box>
+        {gauge.length > 0 && (
+          <Text color={level === 'alert' ? 'red' : level === 'warn' ? 'yellow' : undefined} dimColor={level === 'normal'} wrap="truncate-end">
+            {gauge}
+          </Text>
+        )}
+      </Box>
+    )
     if (isLine) {
       ctx.band = null
       return (
@@ -210,7 +225,7 @@ export const register: Register = (on, options) => {
             {status}
             <Text dimColor>{bubble === null ? '' : ` “${bubble.text}”`}</Text>
           </Text>
-          <Box gap={1}>{buttons}</Box>
+          {controls}
         </Box>
       )
     }
@@ -232,7 +247,7 @@ export const register: Register = (on, options) => {
           {`${' '.repeat(indent)}${said}`}
         </Text>
         <Raster key={SCENE_KEY} columns={columns} rows={BAND_ROWS} cells={band.lastCells} />
-        <Box gap={1}>{buttons}</Box>
+        {controls}
       </Box>
     )
   })
@@ -256,11 +271,12 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
-    const [settings, pet, mood, wallet] = await Promise.all([read($, settingsAtom), read($, petAtom), read($, moodAtom), read($, walletAtom)])
+    const [settings, pet, mood, wallet, meter] = await Promise.all([read($, settingsAtom), read($, petAtom), read($, moodAtom), read($, walletAtom), read($, meterAtom)])
     if (pet === null || pet.soul === null || (settings?.isHidden !== true && !ctx.brain.isLineMode)) {
       return next(e)
     }
-    return next({ ...e, props: { ...e.props, tail: `${nameOf(pet) ?? UNNAMED} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c` } })
+    const context = settings?.isMeterOn === false || meter?.contextPercent === null || meter?.contextPercent === undefined ? '' : ` · ${Math.round(meter.contextPercent)}%`
+    return next({ ...e, props: { ...e.props, tail: `${nameOf(pet) ?? UNNAMED} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c${context}` } })
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {

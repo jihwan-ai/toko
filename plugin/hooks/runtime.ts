@@ -11,6 +11,7 @@ import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { nameProblem } from './lib/persona'
 import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
+import type { Limit } from './lib/meter'
 import { findFriend } from './lib/plaza'
 import type { PlazaAction } from './lib/plaza'
 import { questText } from './lib/quests'
@@ -148,6 +149,11 @@ export async function start($: $, ctx: Ctx): Promise<void> {
   const brain = ctx.brain
   await now($, ctx)
   brain.sessionId = await $.session.id()
+  brain.costBase = await $.session
+    .usage()
+    .then(usage => usage.cost?.usd ?? 0)
+    .catch(() => 0)
+  brain.lastCostUsd = brain.costBase
   await readEnvironment($, brain)
   await load($, brain)
   await reflect($, brain)
@@ -263,9 +269,9 @@ export async function apologized($: $, ctx: Ctx): Promise<string> {
   return apologize($, ctx.brain)
 }
 
-export async function measured($: $, ctx: Ctx, contextPercent: number | undefined, limits: readonly { percentUsed: number }[]): Promise<void> {
+export async function measured($: $, ctx: Ctx, contextPercent: number | undefined, limits: readonly Limit[], costUsd: number | undefined): Promise<void> {
   await now($, ctx)
-  await onMeasure($, ctx.brain, contextPercent, limits.reduce((max, limit) => Math.max(max, limit.percentUsed), 0))
+  await onMeasure($, ctx.brain, contextPercent, limits, costUsd)
 }
 
 export async function attention($: $, ctx: Ctx): Promise<void> {
@@ -282,6 +288,7 @@ export const HELP = [
   '/toko off-work 19 | off-work off — 퇴근 시각',
   '/toko ai on | off — 작은 모델 쓰기',
   '/toko notify on | off — OS 알림(하루 3회)',
+  '/toko meter on | off — 띠의 컨텍스트·비용·한도 미터',
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
   '/toko card — 펫 카드',
@@ -428,6 +435,12 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
     case 'notify': {
       const toggle = onOff(value)
       return toggle === null ? { text: '예: /toko notify on' } : changeSettings($, brain, { isNotifyOn: toggle }, toggle ? 'OS 알림을 하루 3번까지 보낼게요.' : 'OS 알림을 껐어요.')
+    }
+    case 'meter': {
+      const toggle = onOff(value)
+      return toggle === null
+        ? { text: '예: /toko meter off' }
+        : changeSettings($, brain, { isMeterOn: toggle }, toggle ? '띠에 컨텍스트·비용·한도를 보여 줄게요.' : '미터를 껐어요.')
     }
     case 'mood-sense': {
       const toggle = onOff(value)

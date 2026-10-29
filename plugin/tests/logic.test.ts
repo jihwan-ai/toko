@@ -11,7 +11,7 @@ import { candidatesOf, decayNeeds, encounterOf, fullNeeds, moodOf } from '../hoo
 
 const usage = (output: number, cacheRead = 0) => ({ input_tokens: 1000, output_tokens: output, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0 })
 
-const SETTINGS = { isMuted: false, isHidden: false, quiet: null, breakMinutes: 50, offWorkHour: null, isAiOn: true, isNotifyOn: false, isMoodSensing: false, isPlazaOn: true } as const
+const SETTINGS = { isMuted: false, isHidden: false, quiet: null, breakMinutes: 50, offWorkHour: null, isAiOn: true, isNotifyOn: false, isMoodSensing: false, isPlazaOn: true, isMeterOn: true } as const
 
 test('turn income grows on a log scale, so heavy token use pays less per token', async () => {
   expect(turnIncome(usage(0))).toBe(0)

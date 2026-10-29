@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { BADGES, badgeViews, closestBadges, newBadges } from '../hooks/lib/badges'
 import { DEX_KINDS, asDex, dexText, dexViews, kindsSeen, mergeDex, recordSighting } from '../hooks/lib/dex'
+import { meterLevel, meterOf, meterText } from '../hooks/lib/meter'
 import { readEditLines } from '../hooks/lib/perceive'
 import { ALL_DONE, questViews, questsDue, questsFor } from '../hooks/lib/quests'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from '../hooks/lib/stats'
@@ -92,4 +93,14 @@ test('the dex counts first sightings and first shiny ones, and merges across ter
   expect(merged.butterfly).toEqual({ seen: 2, shiny: 1, firstAt: 10 })
   expect(asDex({ butterfly: { seen: 1 }, dragon: { seen: 9 }, rain: 'x' })).toEqual({ butterfly: { seen: 1, shiny: 0, firstAt: 0 } })
   expect(dexText(dexViews(merged))).toContain(`도감 2/${DEX_KINDS.length} · 반짝 1`)
+})
+
+test('the meter shows context, cost and the busiest limit, and warns as they fill', async () => {
+  const calm = meterOf(42, 1.236, [{ kind: 'five_hour', percentUsed: 30 }, { kind: 'seven_day', percentUsed: 12 }])
+  expect(meterText(calm)).toBe('컨텍스트 42% · $1.24 · 5시간 30%')
+  expect(meterLevel(calm)).toBe('normal')
+  expect(meterLevel(meterOf(72, 0, []))).toBe('warn')
+  expect(meterLevel(meterOf(10, 0, [{ kind: 'seven_day', percentUsed: 91 }]))).toBe('alert')
+  expect(meterText(meterOf(undefined, undefined, [{ kind: 'seven_day', percentUsed: 85, resetsAt: '2026-10-29T08:30:00Z' }]))).toMatch(/^7일 85% \(\d\d:\d\d 리셋\)$/)
+  expect(meterText(meterOf(undefined, undefined, []))).toBe('')
 })
