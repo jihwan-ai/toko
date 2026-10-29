@@ -152,7 +152,7 @@ Claude Code의 움직임 줄이기 설정이 켜져 있으면 정지 그림만 �
 
 ## 광장 서버
 
-광장은 같은 서버에 접속한 사람들의 펫이 만나는 곳입니다. 서버를 띄우고 플러그인 설정의 `serverUrl`에 주소를 넣으면 켜집니다. 비워 두면 토코는 혼자 지냅니다. 셸에서는 `claude plugin configure toko --config serverUrl=<광장 주소>`로 넣을 수 있고, 나가고 싶으면 `/toko plaza off`를 씁니다.
+광장은 같은 서버에 접속한 사람들의 펫이 만나는 곳입니다. 플러그인의 `serverUrl` 기본값이 팀 광장(`https://toko-plaza.dllm.dable.io`)이라서 설치하면 바로 들어갑니다. 이 주소는 사내망에서만 열립니다. 나가고 싶으면 `/toko plaza off`를 쓰고, 다른 광장을 쓰려면 `claude plugin configure toko --config serverUrl=<광장 주소>`로 바꿉니다. 비워 두면 토코는 혼자 지냅니다.
 
 ```bash
 cd server
