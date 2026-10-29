@@ -28,6 +28,9 @@ import {
   gameCatch,
   gameMove,
   measured,
+  memoCommand,
+  memoDrop,
+  memoFill,
   petStatus,
   playCommand,
   plazaAct,
@@ -60,6 +63,7 @@ const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
 const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
 const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
+const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -152,6 +156,8 @@ export const register: Register = (on, options) => {
   on('command.run', { command: 'feed' }, async $ => ({ text: await feedCommand($, ctx) }))
 
   on('command.run', { command: 'play' }, async $ => ({ text: await playCommand($, ctx) }))
+
+  on('command.run', { command: 'memo' }, async ($, e) => ({ text: await memoCommand($, ctx, e.args) }))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const [settings, offer, pet] = await Promise.all([read($, settingsAtom), read($, offerAtom), read($, petAtom)])
@@ -280,7 +286,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, wallet, needs, mood, plaza, lessons, progress, focus] = await Promise.all([
+    const [pet, wallet, needs, mood, plaza, lessons, progress, focus, memos] = await Promise.all([
       read($, petAtom),
       read($, walletAtom),
       read($, needsAtom),
@@ -289,6 +295,7 @@ export const register: Register = (on, options) => {
       read($, lessonsAtom),
       read($, progressAtom),
       read($, focusAtom),
+      read($, memosAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
@@ -342,6 +349,18 @@ export const register: Register = (on, options) => {
             </Box>
           )}
         </Box>
+        {memos.length > 0 && (
+          <Box flexDirection="column">
+            <Text weight="bold">메모 {memos.length}개</Text>
+            {memos.slice(-5).map(memo => (
+              <Box key={`memo-${memo.id}`} gap={1}>
+                <Button key={`memo-fill-${memo.id}`} label="넣기" onPress={press(() => memoFill($, ctx, memo.id))} />
+                <Button key={`memo-drop-${memo.id}`} label="지우기" onPress={press(() => memoDrop($, ctx, memo.id))} />
+                <Text wrap="truncate-end">{memo.text}</Text>
+              </Box>
+            ))}
+          </Box>
+        )}
         {progress !== null && progress.quests.length > 0 && (
           <Box flexDirection="column">
             <Text weight="bold">

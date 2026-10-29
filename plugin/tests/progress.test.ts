@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { BADGES, badgeViews, closestBadges, newBadges } from '../hooks/lib/badges'
 import { DEX_KINDS, asDex, dexText, dexViews, kindsSeen, mergeDex, recordSighting } from '../hooks/lib/dex'
+import { addMemo, deferMemo, dropMemo, dueMemo } from '../hooks/lib/memo'
 import { meterLevel, meterOf, meterText } from '../hooks/lib/meter'
 import { readEditLines } from '../hooks/lib/perceive'
 import { ALL_DONE, questViews, questsDue, questsFor } from '../hooks/lib/quests'
@@ -103,4 +104,22 @@ test('the meter shows context, cost and the busiest limit, and warns as they fil
   expect(meterLevel(meterOf(10, 0, [{ kind: 'seven_day', percentUsed: 91 }]))).toBe('alert')
   expect(meterText(meterOf(undefined, undefined, [{ kind: 'seven_day', percentUsed: 85, resetsAt: '2026-10-29T08:30:00Z' }]))).toMatch(/^7일 85% \(\d\d:\d\d 리셋\)$/)
   expect(meterText(meterOf(undefined, undefined, []))).toBe('')
+})
+
+test('memos are tidied and capped, and come back after the turn they were parked in', async () => {
+  expect(addMemo([], 'a', '  로그   포맷도\n바꾸기 ', 0)[0]?.text).toBe('로그 포맷도 바꾸기')
+  expect([...(addMemo([], 'b', 'x'.repeat(300), 0)[0]?.text ?? '')].length).toBe(200)
+  let memos = addMemo([], 'first', 'x', 0)
+  for (let index = 0; index < 25; index += 1) {
+    memos = addMemo(memos, `m${index}`, 'x', index)
+  }
+  expect(memos.length).toBe(20)
+  const one = addMemo([], 'a', '생각', 1000)
+  expect(dueMemo(one, 2000, 0)).toBeUndefined()
+  expect(dueMemo(one, 2000, 1500)?.id).toBe('a')
+  expect(dueMemo(one, 62_000, 0)?.id).toBe('a')
+  const later = deferMemo(one, 'a', 70_000)
+  expect(dueMemo(later, 130_000, 80_000)).toBeUndefined()
+  expect(dueMemo(later, 70_000 + 30 * 60_000, 80_000)?.id).toBe('a')
+  expect(dropMemo(one, 'a')).toEqual([])
 })

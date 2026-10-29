@@ -10,6 +10,7 @@ import type {
   TokoFocus,
   TokoFriend,
   TokoGame,
+  TokoMemo,
   TokoMemory,
   TokoMeter,
   TokoMood,
@@ -35,6 +36,7 @@ import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earn
 import type { TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
+import { addMemo, asMemos, clipMemo, deferMemo, dropMemo, dueMemo } from './lib/memo'
 import { meterOf } from './lib/meter'
 import type { Limit } from './lib/meter'
 import { failureStreak } from './lib/perceive'
@@ -68,6 +70,7 @@ const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
 const meterAtom = atom({ plugin: 'toko', key: 'meter' } as const, null)
+const memosAtom = atom({ plugin: 'toko', key: 'memos' } as const, [])
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
@@ -89,6 +92,7 @@ export const KEY = {
   badges: 'toko:badges',
   quests: 'toko:quests',
   dex: 'toko:dex',
+  memos: 'toko:memos',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -142,6 +146,8 @@ export type Brain = {
   badges: Unlocked
   questsPaid: QuestsPaid
   dex: Dex
+  memos: readonly TokoMemo[]
+  memoOfferId: string | null
   mood: TokoMood
   isLoaded: boolean
   isTurnRunning: boolean
@@ -203,6 +209,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   badges: {},
   questsPaid: { day: '', ids: [] },
   dex: {},
+  memos: [],
+  memoOfferId: null,
   mood: 'calm',
   isLoaded: false,
   isTurnRunning: false,
@@ -256,7 +264,7 @@ export const today = (brain: Brain): string => dayKey(brain.now)
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, keys] = await Promise.all([
+  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, memos, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.needs),
     $.store.get(KEY.memory),
@@ -269,6 +277,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.badges),
     $.store.get(KEY.quests),
     $.store.get(KEY.dex),
+    $.store.get(KEY.memos),
     $.store.keys(),
   ])
   brain.pet = isPet(pet) ? { ...pet, growth: advanceDay(pet.growth, day) } : null
@@ -291,6 +300,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.badges = asUnlocked(badges)
   brain.questsPaid = asPaid(questsPaid, day)
   brain.dex = asDex(dex)
+  brain.memos = asMemos(memos)
   brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
@@ -348,6 +358,8 @@ export async function refreshShared($: $, brain: Brain): Promise<void> {
   brain.otherTallies = tallies.flatMap(tally => (tally !== null && tally.day === today(brain) ? [tally] : []))
   brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
   brain.dex = mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex)
+  brain.memos = asMemos(await $.store.get(KEY.memos))
+  await update($, memosAtom, () => brain.memos)
   const paid = asPaid(await $.store.get(KEY.quests), today(brain)).ids
   brain.questsPaid = { day: today(brain), ids: [...new Set([...paid, ...(brain.questsPaid.day === today(brain) ? brain.questsPaid.ids : [])])] }
   brain.isProgressDirty = true
@@ -479,6 +491,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, progressAtom, () => progressOf(brain)),
     update($, focusAtom, () => brain.focus),
     update($, meterAtom, () => brain.meter),
+    update($, memosAtom, () => brain.memos),
   ])
 }
 
@@ -668,6 +681,13 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
       { key: 'auto', label: '네가 지어', hotkey: '2' },
     ]
   }
+  if (kind === 'memo') {
+    return [
+      { key: 'accept', label: '입력창에 넣기', hotkey: '1' },
+      { key: 'later', label: '나중에', hotkey: '2' },
+      { key: 'drop', label: '지우기', hotkey: '3' },
+    ]
+  }
   return CHOICES
 }
 
@@ -742,6 +762,10 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
   }
   if (offer.kind === 'name') {
     await answerName($, brain, choice)
+    return
+  }
+  if (offer.kind === 'memo') {
+    await answerMemo($, brain, choice)
     return
   }
   const answer: Answer = choice === 'accept' ? 'accept' : choice === 'stop' ? 'stop' : choice === 'ignored' ? 'ignored' : 'later'
@@ -820,7 +844,7 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
     case 'wrapup': {
       const reply = await ask($, brain, persona.linePrompt('퇴근 시각이 지났다. 오늘 한 일과 남은 일을 세 줄 이내로 정리한다. 줄은 " / "로 나눈다.', workMemoryFacts(brain)), 200)
       const summary = (reply === null ? null : persona.extractJson(reply)?.line) ?? ruleWrapup(brain)
-      $.ui.log(`${nameOf(brain.pet) ?? '토코'}의 오늘 정리 — ${String(summary)}`)
+      $.ui.log(`${nameOf(brain.pet) ?? '토코'}의 오늘 정리 — ${String(summary)}${brain.memos.length > 0 ? ` (남은 메모 ${brain.memos.length}개: /toko memo)` : ''}`)
       brain.marks = { ...brain.marks, wrappedDay: today(brain) }
       healthReward(brain, HEALTH_REWARD.finishedOnTime)
       remember(brain, 'break-done', 'wrapup')
@@ -855,6 +879,65 @@ export async function breathe($: $, brain: Brain, rounds: number): Promise<void>
 }
 
 const BREAK_STAT: Readonly<Record<string, StatKey>> = { stretch: 'stretch', 'plaza-stretch': 'stretch', 'focus-break': 'stretch', 'eye-rest': 'eye-rest' }
+
+async function changeMemos($: $, brain: Brain, change: (memos: readonly TokoMemo[]) => readonly TokoMemo[]): Promise<void> {
+  brain.memos = change(asMemos(await $.store.get(KEY.memos)))
+  await $.store.set(KEY.memos, brain.memos)
+  await update($, memosAtom, () => brain.memos)
+}
+
+export async function parkMemo($: $, brain: Brain, text: string): Promise<void> {
+  await changeMemos($, brain, memos => addMemo(memos, `m${brain.now.toString(36)}${Math.floor(brain.random() * 1296).toString(36)}`, text, brain.now))
+  remember(brain, 'memo')
+  count(brain, 'memo')
+  act(brain, direct.perk(), PRIORITY.reaction)
+  if (!isHushed(brain)) {
+    await say($, brain, brain.isTurnRunning ? '맡아 둘게. 턴 끝나면 꺼내 줄게' : '맡아 둘게', 'quiet')
+  }
+}
+
+export async function fillMemo($: $, brain: Brain, id: string): Promise<boolean> {
+  const memo = brain.memos.find(entry => entry.id === id)
+  if (memo === undefined) {
+    return false
+  }
+  const box = await $.prompt.read().catch(() => null)
+  const filled = await $.prompt.fill({ text: box !== null && box.text.trim().length > 0 ? ` ${memo.text}` : memo.text, mode: 'append' })
+  if (!filled.isFilled) {
+    return false
+  }
+  await changeMemos($, brain, memos => dropMemo(memos, id))
+  return true
+}
+
+export async function forgetMemo($: $, brain: Brain, id: string | null): Promise<void> {
+  await changeMemos($, brain, memos => (id === null ? [] : dropMemo(memos, id)))
+}
+
+async function answerMemo($: $, brain: Brain, choice: string): Promise<void> {
+  const id = brain.memoOfferId
+  brain.memoOfferId = null
+  if (id === null) {
+    return
+  }
+  if (choice === 'accept') {
+    const isFilled = await fillMemo($, brain, id)
+    if (!isFilled) {
+      await changeMemos($, brain, memos => deferMemo(memos, id, brain.now))
+    }
+    await say($, brain, isFilled ? '입력창에 넣어 뒀어. 다듬어서 보내' : '입력창에 못 넣었어. 방에서 다시 꺼낼 수 있어')
+    return
+  }
+  if (choice === 'drop') {
+    await forgetMemo($, brain, id)
+    await say($, brain, '지웠어')
+    return
+  }
+  await changeMemos($, brain, memos => deferMemo(memos, id, brain.now))
+  if (choice === 'later') {
+    await say($, brain, '30분 뒤에 다시 꺼낼게')
+  }
+}
 
 export const FOCUS_MINUTES = 25
 
@@ -1387,6 +1470,12 @@ export async function think($: $, brain: Brain): Promise<void> {
     const minutes = brain.focusDoneMinutes
     brain.focusDoneMinutes = null
     await openOffer($, brain, 'focus-break', `${minutes}분 집중 끝! +${HEALTH_REWARD.focusDone} 코인. 기지개 켜고 올래?`)
+    return
+  }
+  const memo = dueMemo(brain.memos, now, brain.lastTurnEndAt)
+  if (memo !== undefined) {
+    brain.memoOfferId = memo.id
+    await openOffer($, brain, 'memo', `아까 맡긴 메모: ${clipMemo(memo.text, 40)}`)
     return
   }
   const candidates = gateCandidates(candidatesOf(contextOf(brain)), brain.budget, brain.settings, now)

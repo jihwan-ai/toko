@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, fillMemo, forgetMemo, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, parkMemo, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
@@ -11,6 +11,7 @@ import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
 import { nameProblem } from './lib/persona'
 import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
+import { memoText } from './lib/memo'
 import type { Limit } from './lib/meter'
 import { findFriend } from './lib/plaza'
 import type { PlazaAction } from './lib/plaza'
@@ -121,6 +122,7 @@ export async function registerSurfaces($: $): Promise<void> {
   await $.command.register({ name: 'bonk', description: 'Ask Toko to bonk Claude with a squeaky hammer', argumentHint: '<reason>', immediate: true })
   await $.command.register({ name: 'feed', description: 'Give Toko a snack' })
   await $.command.register({ name: 'play', description: 'Play with Toko for a moment' })
+  await $.command.register({ name: 'memo', description: 'Park a stray thought with Toko; it comes back after the turn', argumentHint: '<내용>', immediate: true })
   await $.tool.register({
     name: 'pet_status',
     description: "Read the user's Toko companion pet: its name, mood, needs and coins. Use only when the user asks about their pet.",
@@ -296,6 +298,7 @@ export const HELP = [
   '/toko quests — 오늘의 퀘스트',
   '/toko badges — 업적',
   '/toko dex — 인카운터 도감',
+  '/toko memo [내용 | clear] — 생각 주차장 메모 (/memo <내용> 도 같음)',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
   '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용)',
@@ -468,6 +471,8 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: badgeText(progressOf(brain).badges) }
     case 'dex':
       return { text: dexText(progressOf(brain).dex) }
+    case 'memo':
+      return { text: await memoCommand($, ctx, rest.join(' ')) }
     case 'name': {
       if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
         return { text: '아직 알이에요. 깨어나면 이름을 지어 주세요.' }
@@ -496,6 +501,30 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
     default:
       return { text: HELP }
   }
+}
+
+export async function memoCommand($: $, ctx: Ctx, args: string): Promise<string> {
+  await now($, ctx)
+  const brain = ctx.brain
+  const text = args.trim()
+  if (text.length === 0) {
+    return memoText(brain.memos)
+  }
+  if (text === 'clear') {
+    await forgetMemo($, brain, null)
+    return '메모를 모두 지웠어요.'
+  }
+  await parkMemo($, brain, text)
+  return `메모를 맡아 뒀어요(${brain.memos.length}개). 턴이 끝나면 꺼내 드릴게요.`
+}
+
+export async function memoFill($: $, ctx: Ctx, id: string): Promise<void> {
+  await now($, ctx)
+  await fillMemo($, ctx.brain, id)
+}
+
+export async function memoDrop($: $, ctx: Ctx, id: string): Promise<void> {
+  await forgetMemo($, ctx.brain, id)
 }
 
 export async function focusCommand($: $, ctx: Ctx, value: string | undefined): Promise<string> {
