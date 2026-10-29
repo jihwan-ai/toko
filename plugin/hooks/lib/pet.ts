@@ -40,7 +40,7 @@ export const createBones = (seed: number): TokoBones => {
   }
 }
 
-const FALLBACK_SOULS: readonly Omit<TokoSoul, 'hatchedAt' | 'isFallback' | 'traits'>[] = [
+const FALLBACK_SOULS: readonly Omit<TokoSoul, 'hatchedAt' | 'isFallback' | 'traits' | 'isNamed'>[] = [
   { name: '말랑', personality: '느긋하고 다정해서 같이 있으면 숨이 고르게 쉬어지는 아이', quirk: '말끝에 "말랑~"을 붙인다' },
   { name: '토실', personality: '먹는 걸 좋아하고 작은 일에도 크게 기뻐하는 아이', quirk: '기쁘면 "냠냠"이라고 한다' },
   { name: '콩떡', personality: '조용히 곁을 지키다 필요할 때 한마디 건네는 아이', quirk: '생각할 때 "음…"을 길게 뺀다' },
