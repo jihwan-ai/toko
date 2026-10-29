@@ -82,8 +82,8 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('prompt.edit', async ($, e, next) => {
-    await typing($, ctx)
+  on('prompt.edit', ($, e, next) => {
+    $.clock.after(1, () => void typing($, ctx))
     return next(e)
   })
 
