@@ -17,6 +17,8 @@ export const BADGES: readonly BadgeDef[] = [
   { id: 'focus-10', name: '몰입의 시간', description: '집중 타이머 10번 끝까지', key: 'focus', goal: 10, reward: 40 },
   { id: 'wrapup-5', name: '정시 퇴근', description: '마무리 정리 5번', key: 'wrapup', goal: 5, reward: 50 },
   { id: 'quest-7', name: '성실한 하루들', description: '오늘의 퀘스트를 다 한 날 7일', key: 'quest-day', goal: 7, reward: 60 },
+  { id: 'dex-8', name: '도감 완성', description: '인카운터 8종을 모두 보기', key: 'dex', goal: 8, reward: 80 },
+  { id: 'shiny', name: '행운의 목격자', description: '반짝이는 장면 보기', key: 'shiny', goal: 1, reward: 30 },
   { id: 'bug-30', name: '벌레 사냥꾼', description: '벌레 30마리 잡기', key: 'bug', goal: 30, reward: 30 },
   { id: 'bug-200', name: '벌레 박사', description: '벌레 200마리 잡기', key: 'bug', goal: 200, reward: 80 },
   { id: 'fed-20', name: '단골 요리사', description: '밥 20번 주기', key: 'fed', goal: 20, reward: 20 },

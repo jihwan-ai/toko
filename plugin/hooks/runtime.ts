@@ -2,9 +2,10 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, runEncounter, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
+import { DEX_NAMES, dexText, isEncounterKind } from './lib/dex'
 import { SHOP, shopItem } from './lib/economy'
 import { readEditLines, readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
@@ -287,9 +288,10 @@ export const HELP = [
   '/toko focus 25 | focus off — 집중 타이머(그동안 말 걸지 않기)',
   '/toko quests — 오늘의 퀘스트',
   '/toko badges — 업적',
+  '/toko dex — 인카운터 도감',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
-  '/toko event <종류> — 이벤트 바로 보기(시연용)',
+  '/toko event <종류> [shiny] — 이벤트나 장면 바로 보기(시연용)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
   '/feed · /play — 먹이 · 놀기',
 ].join('\n')
@@ -451,6 +453,8 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: questText(progressOf(brain).quests) }
     case 'badges':
       return { text: badgeText(progressOf(brain).badges) }
+    case 'dex':
+      return { text: dexText(progressOf(brain).dex) }
     case 'name': {
       if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
         return { text: '아직 알이에요. 깨어나면 이름을 지어 주세요.' }
@@ -468,6 +472,11 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return plazaCommand($, brain, rest)
     case 'event': {
       const kind = value ?? 'stretch'
+      if (isEncounterKind(kind)) {
+        await runEncounter($, brain, kind, rest[1] === 'shiny')
+        await sync($, brain)
+        return { text: `${DEX_NAMES[kind]} 장면을 띄웠어요.` }
+      }
       await openOffer($, brain, kind, offerLine(brain, kind))
       return { text: `${kind} 이벤트를 띄웠어요.` }
     }

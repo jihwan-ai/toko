@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { BADGES, badgeViews, closestBadges, newBadges } from '../hooks/lib/badges'
+import { DEX_KINDS, asDex, dexText, dexViews, kindsSeen, mergeDex, recordSighting } from '../hooks/lib/dex'
 import { readEditLines } from '../hooks/lib/perceive'
 import { ALL_DONE, questViews, questsDue, questsFor } from '../hooks/lib/quests'
 import { addNote, asStats, asTally, bump, emptyStats, emptyTally, foldTally, todayOf, totalOf } from '../hooks/lib/stats'
@@ -77,4 +78,18 @@ test('finished quests come due once, and the full set adds the bonus', async () 
   const all = questViews(quests, keys)
   expect(questsDue(all, [])).toEqual([...quests.map(quest => quest.id), ALL_DONE])
   expect(questsDue(all, [...quests.map(quest => quest.id), ALL_DONE])).toEqual([])
+})
+
+test('the dex counts first sightings and first shiny ones, and merges across terminals', async () => {
+  const first = recordSighting({}, 'butterfly', false, 10)
+  expect(first.isNew).toBe(true)
+  const shiny = recordSighting(first.dex, 'butterfly', true, 20)
+  expect(shiny.isNew).toBe(false)
+  expect(shiny.isNewShiny).toBe(true)
+  expect(recordSighting(shiny.dex, 'butterfly', true, 30).isNewShiny).toBe(false)
+  const merged = mergeDex(shiny.dex, { firefly: { seen: 2, shiny: 0, firstAt: 5 } })
+  expect(kindsSeen(merged)).toBe(2)
+  expect(merged.butterfly).toEqual({ seen: 2, shiny: 1, firstAt: 10 })
+  expect(asDex({ butterfly: { seen: 1 }, dragon: { seen: 9 }, rain: 'x' })).toEqual({ butterfly: { seen: 1, shiny: 0, firstAt: 0 } })
+  expect(dexText(dexViews(merged))).toContain(`도감 2/${DEX_KINDS.length} · 반짝 1`)
 })

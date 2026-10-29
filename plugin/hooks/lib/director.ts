@@ -270,6 +270,18 @@ export const encounter = (scene: Scene, kind: EncounterKind, random: Random): St
   }
 }
 
+export const shimmer = (): Step[] => [
+  {
+    pose: 'look',
+    ms: 700,
+    enter: s => {
+      for (let index = 0; index < 5; index += 1) {
+        spawn(s, 'sparkle', Math.round((s.width / 6) * (index + 1)), 1 + (index % 3), 0, -0.5, 2200)
+      }
+    },
+  },
+]
+
 export const friendVisit = (friendId: string, color: TokoColor): Step[] => [
   { pose: 'look', ms: 600, enter: s => addVisitor(s, friendId, color, 14_000, 2500) },
   { pose: 'idle', ms: 1800 },

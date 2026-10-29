@@ -358,6 +358,16 @@ export const register: Register = (on, options) => {
             </Text>
           </Box>
         )}
+        {progress !== null && (
+          <Box flexDirection="column">
+            <Text weight="bold">
+              도감 {progress.dex.filter(entry => entry.seen > 0).length}/{progress.dex.length} · 반짝 {progress.dex.filter(entry => entry.shiny > 0).length}
+            </Text>
+            <Text dimColor={progress.dex.every(entry => entry.seen === 0)}>
+              {progress.dex.map(entry => (entry.seen === 0 ? '???' : `${entry.name}${entry.shiny > 0 ? ' ✦' : ''}`)).join(' · ')}
+            </Text>
+          </Box>
+        )}
         <Box flexDirection="column">
           <Text weight="bold">상점</Text>
           <Box flexWrap="wrap" gap={1}>

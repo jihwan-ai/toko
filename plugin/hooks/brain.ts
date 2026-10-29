@@ -26,6 +26,8 @@ import type {
 
 import { asUnlocked, badgeViews, newBadges } from './lib/badges'
 import type { Unlocked } from './lib/badges'
+import { DEX_REWARD, SHINY_CHANCE, asDex, dexViews, kindsSeen, mergeDex, recordSighting, sightingLine } from './lib/dex'
+import type { Dex, Sighting } from './lib/dex'
 import * as direct from './lib/director'
 import { PRIORITY } from './lib/director'
 import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earnedTokenToday, emptyEarn, shopItem, takeSnack, turnIncome, wear, wornOf } from './lib/economy'
@@ -42,7 +44,7 @@ import type { Random } from './lib/random'
 import { createRandom, pick, pickWeighted } from './lib/random'
 import type { Look, Scene, Step } from './lib/scene'
 import { PET_WIDTH, createScene, isBusy, perform, placeProp, removeProp, setLook } from './lib/scene'
-import type { Candidate, OfferKind } from './lib/sim'
+import type { Candidate, EncounterKind, OfferKind } from './lib/sim'
 import { ALL_DONE, QUEST_BONUS, QUEST_REWARD, asPaid, questViews, questsDue, questsFor } from './lib/quests'
 import type { QuestsPaid } from './lib/quests'
 import { BREAK_KINDS, ENCOUNTER_LINES, candidatesOf, decayNeeds, encounterOf, fullNeeds, idleWeights, moodOf, restore } from './lib/sim'
@@ -82,6 +84,7 @@ export const KEY = {
   tallyPrefix: 'toko:tally:',
   badges: 'toko:badges',
   quests: 'toko:quests',
+  dex: 'toko:dex',
 } as const
 
 export const SHARED_REFRESH_MS = 60_000
@@ -133,6 +136,7 @@ export type Brain = {
   lastSharedAt: number
   badges: Unlocked
   questsPaid: QuestsPaid
+  dex: Dex
   mood: TokoMood
   isLoaded: boolean
   isTurnRunning: boolean
@@ -190,6 +194,7 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   lastSharedAt: 0,
   badges: {},
   questsPaid: { day: '', ids: [] },
+  dex: {},
   mood: 'calm',
   isLoaded: false,
   isTurnRunning: false,
@@ -240,7 +245,7 @@ export const today = (brain: Brain): string => dayKey(brain.now)
 export async function load($: $, brain: Brain): Promise<void> {
   const now = brain.now
   const day = dayKey(now)
-  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, keys] = await Promise.all([
+  const [pet, needs, memory, wallet, budget, settings, marks, plazaId, stats, badges, questsPaid, dex, keys] = await Promise.all([
     $.store.get(KEY.pet),
     $.store.get(KEY.needs),
     $.store.get(KEY.memory),
@@ -252,6 +257,7 @@ export async function load($: $, brain: Brain): Promise<void> {
     $.store.get(KEY.stats),
     $.store.get(KEY.badges),
     $.store.get(KEY.quests),
+    $.store.get(KEY.dex),
     $.store.keys(),
   ])
   brain.pet = isPet(pet) ? { ...pet, growth: advanceDay(pet.growth, day) } : null
@@ -273,6 +279,7 @@ export async function load($: $, brain: Brain): Promise<void> {
   brain.lastSharedAt = now
   brain.badges = asUnlocked(badges)
   brain.questsPaid = asPaid(questsPaid, day)
+  brain.dex = asDex(dex)
   brain.isProgressDirty = true
   brain.workingSince = now
   brain.lastInputAt = now
@@ -328,6 +335,7 @@ export async function refreshShared($: $, brain: Brain): Promise<void> {
   const tallies = await Promise.all(keys.map(async key => asTally(await $.store.get(key))))
   brain.otherTallies = tallies.flatMap(tally => (tally !== null && tally.day === today(brain) ? [tally] : []))
   brain.badges = { ...asUnlocked(await $.store.get(KEY.badges)), ...brain.badges }
+  brain.dex = mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex)
   const paid = asPaid(await $.store.get(KEY.quests), today(brain)).ids
   brain.questsPaid = { day: today(brain), ids: [...new Set([...paid, ...(brain.questsPaid.day === today(brain) ? brain.questsPaid.ids : [])])] }
   brain.isProgressDirty = true
@@ -344,13 +352,14 @@ const jot = (brain: Brain, text: string): void => {
   brain.isDirty = true
 }
 
-export const progressCounts = (brain: Brain): TokoCounts => totalOf(brain.stats, [...brain.otherTallies, brain.tally])
+export const progressCounts = (brain: Brain): TokoCounts => ({ ...totalOf(brain.stats, [...brain.otherTallies, brain.tally]), dex: kindsSeen(brain.dex) })
 
 export const questsOf = (brain: Brain) => questsFor(today(brain), brain.pet?.bones.seed ?? 0, isPlazaReady(brain))
 
 export const progressOf = (brain: Brain): TokoProgress => ({
   badges: badgeViews(progressCounts(brain), brain.badges),
   quests: questViews(questsOf(brain), todayOf(brain.stats, [...brain.otherTallies, brain.tally], today(brain)).counts),
+  dex: dexViews(brain.dex),
 })
 
 async function awardQuests($: $, brain: Brain): Promise<readonly string[]> {
@@ -1419,9 +1428,38 @@ async function maybeEncounter($: $, brain: Brain): Promise<void> {
   if (kind === null) {
     return
   }
+  await runEncounter($, brain, kind, brain.random() < SHINY_CHANCE)
+}
+
+async function noteSighting($: $, brain: Brain, kind: EncounterKind, isShiny: boolean): Promise<Sighting> {
+  const sighting = recordSighting(mergeDex(asDex(await $.store.get(KEY.dex)), brain.dex), kind, isShiny, brain.now)
+  brain.dex = sighting.dex
+  await $.store.set(KEY.dex, brain.dex)
+  return sighting
+}
+
+export async function runEncounter($: $, brain: Brain, kind: EncounterKind, isShiny: boolean): Promise<void> {
   brain.lastEncounterAt = brain.now
   remember(brain, 'encounter', kind, 0.3)
-  act(brain, direct.encounter(scene, kind, brain.random), PRIORITY.encounter)
+  count(brain, 'encounter')
+  if (isShiny) {
+    count(brain, 'shiny')
+  }
+  if (brain.scene !== null) {
+    act(brain, [...(isShiny ? direct.shimmer() : []), ...direct.encounter(brain.scene, kind, brain.random)], PRIORITY.encounter)
+  }
+  const sighting = await noteSighting($, brain, kind, isShiny)
+  const reward = (sighting.isNew ? DEX_REWARD.first : 0) + (sighting.isNewShiny ? DEX_REWARD.shiny : 0)
+  if (reward > 0) {
+    healthReward(brain, reward)
+  }
+  if (isHushed(brain)) {
+    return
+  }
+  if (reward > 0) {
+    await say($, brain, sightingLine(kind, sighting, kindsSeen(brain.dex), reward), 'quiet')
+    return
+  }
   if ((brain.pet?.soul?.traits.chatty ?? 0) >= 0.5 || kind === 'bubbles' || kind === 'firefly') {
     await say($, brain, pick(brain.random, ENCOUNTER_LINES[kind]), 'quiet')
   }

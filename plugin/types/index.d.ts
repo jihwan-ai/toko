@@ -58,7 +58,9 @@ export type TokoBadge = { id: string; name: string; description: string; progres
 
 export type TokoQuest = { id: string; label: string; progress: number; goal: number; isDone: boolean }
 
-export type TokoProgress = { badges: readonly TokoBadge[]; quests: readonly TokoQuest[] }
+export type TokoDexEntry = { kind: string; name: string; seen: number; shiny: number }
+
+export type TokoProgress = { badges: readonly TokoBadge[]; quests: readonly TokoQuest[]; dex: readonly TokoDexEntry[] }
 
 export type TokoBudget = {
   day: string
