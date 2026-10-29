@@ -8,6 +8,10 @@ const PET = {
   growth: { stage: 'baby', daysTogether: 2, breaksAccepted: 1, lastDay: '2026-10-29' },
 }
 
+const UNNAMED_PET = { ...PET, soul: { ...PET.soul, name: '콩떡', isNamed: false } }
+
+const SOUL_REPLY = '{"name":"콩떡","personality":"조용히 곁을 지키는 아이","quirk":"\\"음…\\"","traits":{"energetic":0.4,"chatty":0.6,"worried":0.5,"playful":0.7}}'
+
 const START = Date.UTC(2026, 9, 29, 5, 0, 0)
 
 const BAND = {
@@ -88,16 +92,75 @@ const runTurn = async ($: Engine, clock: { advance: (ms: number) => Promise<void
   })
 }
 
-test('a first session lays an egg, hatches it and names the pet', async ($, on) => {
+test('a first session lays an egg, hatches it and asks for a name', async ($, on) => {
   const clock = mock.clock(on, { now: START })
-  const store: Record<string, unknown> = {}
-  const world = engine(on, store, '{"name":"콩떡","personality":"조용히 곁을 지키는 아이","quirk":"\\"음…\\"","traits":{"energetic":0.4,"chatty":0.6,"worried":0.5,"playful":0.7}}')
+  const world = engine(on, {}, SOUL_REPLY)
   await begin($)
   await clock.advance(9000)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /콩떡/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /이름 없음/ })).toBeDefined()
   expect(world.models.some(prompt => prompt.includes('영혼'))).toBe(true)
+  await ui.press({ key: 'choice-accept' })
+  expect(world.filled).toEqual(['/toko name '])
   await ui.unmount()
+})
+
+test('/toko name gives the newborn the name the person chose', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, {}, SOUL_REPLY)
+  await begin($)
+  await clock.advance(9000)
+  const named = await $.command.run({ command: 'toko', args: 'name 콩이' } as never)
+  expect(named.text).toContain('콩이')
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /콩이/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'choice-accept' })).toBeUndefined()
+  expect((world.saved['toko:pet'] as { soul: { name: string } }).soul.name).toBe('콩이')
+  await ui.unmount()
+})
+
+test('"네가 지어" keeps the name the small model chose', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, {}, SOUL_REPLY)
+  await begin($)
+  await clock.advance(9000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await ui.press({ key: 'choice-auto' })
+  expect(await ui.find({ type: 'Text', text: /콩떡/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /이름 없음/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a prompt sent before naming does not chase the name question away', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  engine(on, {}, SOUL_REPLY)
+  await begin($)
+  await clock.advance(9000)
+  await $.turn.start({ text: 'fix it', turnId: 't1' } as never)
+  await clock.advance(40_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Button', key: 'choice-accept' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a pet left unnamed asks again when the next session starts', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': UNNAMED_PET })
+  await begin($)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /이름 없음/ })).toBeDefined()
+  expect(await ui.find({ type: 'Button', key: 'choice-accept' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/toko name renames a pet, but not to a name with a space in it', async ($, on) => {
+  mock.clock(on, { now: START })
+  engine(on, { 'toko:pet': PET })
+  await begin($)
+  await $.command.run({ command: 'toko', args: 'name 콩 이' } as never)
+  expect((await $.command.run({ command: 'toko', args: 'card' } as never)).text).toContain('말랑')
+  await $.command.run({ command: 'toko', args: 'name 콩이' } as never)
+  expect((await $.command.run({ command: 'toko', args: 'card' } as never)).text).toContain('콩이')
 })
 
 test('the band draws a pixel scene and repaints it by blit, not by redraw', async ($, on) => {

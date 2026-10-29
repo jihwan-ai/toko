@@ -72,6 +72,10 @@ claude plugin install toko --marketplace junghyeon95/toko
 | o | 선물 상자 열기 |
 | a · s · d | 벌레 잡기 미니게임: 왼쪽 · 잡기 · 오른쪽 |
 
+### 이름 짓기
+
+알이 깨지면 펫이 이름을 지어 달라고 말을 겁니다. 1을 누르면 입력란에 `/toko name `이 채워지니 이름만 쓰고 보내면 됩니다. 2를 누르면 작은 모델이 지어 둔 이름을 그대로 씁니다. 답하지 않아도 이 물음은 사라지지 않고, 이름이 정해질 때까지 띠에는 "이름 없음"으로 보입니다. 이름은 띄어쓰기 없는 한 낱말에 12자까지이고, `/toko name <새 이름>`으로 언제든 바꿀 수 있습니다.
+
 ### 쉬자는 권유
 
 틈이 오면 토코가 지금 상황에 맞는 권유를 하나 고릅니다. 가만히 있는 쪽을 고르기도 합니다. 30초 동안 아무것도 누르지 않으면 조용히 물러나고, 거절로 세지 않습니다.
@@ -143,6 +147,7 @@ Claude가 엉뚱한 일을 했을 때 이유 한 줄과 함께 부탁합니다.
 | `/toko notify on` | OS 알림을 하루 3번까지 보냅니다(기본 꺼짐) |
 | `/toko shop` · `buy <id>` · `wear <id>` | 상점과 꾸미기 |
 | `/toko card` | 펫 카드 |
+| `/toko name <이름>` | 펫 이름을 짓거나 바꿉니다 |
 | `/toko plaza` · `plaza wave <이름>` · `plaza invite` | 광장 |
 | `/bonk <이유>` · `/feed` · `/play` | 분풀이 · 먹이 · 놀기 |
 
@@ -189,7 +194,7 @@ docker build -t toko-plaza .     # 컨테이너로 띄울 때. uid 1000, HOME=/a
 
 ```bash
 claude plugin validate plugin   # 매니페스트와 훅 모듈을 엔진이 읽는 방식으로 검사
-claude plugin test plugin       # 플러그인 테스트 26개(경제 · 게이트 · 렌더링 · 분풀이 · 광장 등)
+claude plugin test plugin       # 플러그인 테스트 31개(경제 · 게이트 · 렌더링 · 분풀이 · 이름 짓기 · 광장 등)
 cd server && bun test           # 광장 서버 테스트 6개
 ```
 

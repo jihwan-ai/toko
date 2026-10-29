@@ -5,7 +5,7 @@ import type { TokoMood } from '../types'
 
 import { ensureScene } from './brain'
 import { SHOP, shopItem } from './lib/economy'
-import { STAGE_LABEL } from './lib/pet'
+import { STAGE_LABEL, UNNAMED, nameOf } from './lib/pet'
 import { ACTION_LABEL } from './lib/plaza'
 import { encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, resize } from './lib/scene'
@@ -158,7 +158,7 @@ export const register: Register = (on, options) => {
     const isLine = brain.isLineMode || e.surface !== 'terminal' || columns < MIN_PIXEL_COLUMNS || e.props.maxRows < BAND_TREE_ROWS
     const seconds = (until: number): number => Math.max(0, Math.ceil((until - brain.now) / 1000))
     const status = [
-      `${pet.soul?.name ?? '알'} ${KAOMOJI[mood]}`,
+      `${nameOf(pet) ?? (pet.soul === null ? '알' : UNNAMED)} ${KAOMOJI[mood]}`,
       pet.growth.stage === 'egg' ? '부화 중' : MOOD_LABEL[mood],
       `코인 ${wallet?.coins ?? 0}`,
       ...(countdown === null ? [] : [`${countdown.label} ${seconds(countdown.endsAt)}초`]),
@@ -244,7 +244,7 @@ export const register: Register = (on, options) => {
     if (pet === null || pet.soul === null || (settings?.isHidden !== true && !ctx.brain.isLineMode)) {
       return next(e)
     }
-    return next({ ...e, props: { ...e.props, tail: `${pet.soul.name} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c` } })
+    return next({ ...e, props: { ...e.props, tail: `${nameOf(pet) ?? UNNAMED} ${KAOMOJI[mood]} ${wallet?.coins ?? 0}c` } })
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
@@ -271,7 +271,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" gap={1}>
         {hasPicture && ctx.room !== null && <Raster key={ROOM_KEY} columns={columns} rows={ROOM_ROWS} cells={ctx.room.lastCells} />}
         <Box flexDirection="column">
-          <Text weight="bold">{soul === null || soul === undefined ? '알' : `${soul.name} · ${STAGE_LABEL[pet?.growth.stage ?? 'baby']} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
+          <Text weight="bold">{soul === null || soul === undefined ? '알' : `${nameOf(pet) ?? UNNAMED} · ${STAGE_LABEL[pet?.growth.stage ?? 'baby']} · ${MOOD_LABEL[mood]} ${KAOMOJI[mood]}`}</Text>
           {soul !== null && soul !== undefined && (
             <Text dimColor>
               {soul.personality} — {soul.quirk}

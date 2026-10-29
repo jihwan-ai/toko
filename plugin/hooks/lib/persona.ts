@@ -31,6 +31,7 @@ export const OFFER_FALLBACK: Readonly<Record<string, readonly string[]>> = {
   chat: ['오늘 많이 했네. 잠깐 쉬면서 한숨 돌리자', '요즘 뭐가 제일 재밌어? 난 너 일하는 거 구경'],
   'calm-down': ['오늘 Claude랑 많이 싸웠네. 물 한 잔 하고 숨 고를래?', '화난 날엔 숨부터. 4초 들이쉬고 6초 내쉬자'],
   'plaza-stretch': ['광장 친구들이 다 같이 기지개 켠대. 같이 할래?', '다른 친구들도 쉬는 중이래. 우리도 같이 펴자'],
+  name: ['안녕! 나 아직 이름이 없어. 지어 줄래?', '나 아직 이름이 없어. 네가 지어 주면 좋겠어'],
 }
 
 export const REACTION_FALLBACK: Readonly<Record<string, readonly string[]>> = {
@@ -130,7 +131,20 @@ export const parseSoul = (text: string, fallback: TokoSoul, clampName: (name: st
     worried: unit(raw.worried, fallback.traits.worried),
     playful: unit(raw.playful, fallback.traits.playful),
   }
-  return { name, personality, quirk, traits, hatchedAt: fallback.hatchedAt, isFallback: false }
+  return { name, personality, quirk, traits, hatchedAt: fallback.hatchedAt, isFallback: false, isNamed: false }
+}
+
+export const nameProblem = (name: string): string | null => {
+  if (name.length === 0) {
+    return '예: /toko name 콩이'
+  }
+  if (/\s/.test(name)) {
+    return '이름은 띄어쓰기 없이 한 낱말로 지어 주세요. 예: /toko name 콩이'
+  }
+  if ([...name].length > 12) {
+    return '이름은 12자까지예요.'
+  }
+  return FORBIDDEN.test(name) ? '그 이름은 쓸 수 없어요.' : null
 }
 
 export const soulSystem = (soul: TokoSoul): string =>

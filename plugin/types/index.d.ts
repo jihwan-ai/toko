@@ -22,6 +22,7 @@ export type TokoSoul = {
   traits: TokoTraits
   hatchedAt: string
   isFallback: boolean
+  isNamed: boolean
 }
 
 export type TokoGrowth = { stage: TokoStage; daysTogether: number; breaksAccepted: number; lastDay: string }

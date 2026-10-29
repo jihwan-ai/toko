@@ -2,12 +2,13 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { answerOffer, apologize, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, offerLine, onAttention, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, purchase, reflect, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
+import { answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, purchase, reflect, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { SHOP, shopItem } from './lib/economy'
 import { readGitEvents, readTestOutcome } from './lib/perceive'
 import type { GitOperation } from './lib/perceive'
-import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL } from './lib/pet'
+import { nameProblem } from './lib/persona'
+import { COLOR_LABEL, RARITY_LABEL, STAGE_LABEL, UNNAMED, isAwaitingName, nameOf } from './lib/pet'
 import { findFriend } from './lib/plaza'
 import type { PlazaAction } from './lib/plaza'
 import { hashText } from './lib/random'
@@ -154,6 +155,10 @@ export async function start($: $, ctx: Ctx): Promise<void> {
     $.clock.after(1500, () => void startHatch($, brain))
     return
   }
+  if (isAwaitingName(brain.pet)) {
+    await askName($, brain)
+    return
+  }
   await greet($, brain)
 }
 
@@ -191,7 +196,7 @@ export async function turnStarted($: $, ctx: Ctx): Promise<void> {
   brain.turnStartedAt = brain.now
   brain.typedDuringTurn = false
   brain.longTurnStage = 0
-  if (brain.offer !== null && brain.offer.kind !== 'bonk-end') {
+  if (brain.offer !== null && brain.offer.kind !== 'bonk-end' && brain.offer.kind !== 'name') {
     await answerOffer($, brain, 'ignored')
   }
 }
@@ -236,7 +241,7 @@ export async function petStatus($: $, ctx: Ctx): Promise<string> {
     return 'Toko is still an egg.'
   }
   return JSON.stringify({
-    name: soul.name,
+    name: nameOf(pet),
     stage: pet.growth.stage,
     mood: brain.mood,
     needs: { energy: Math.round(brain.needs.energy), fun: Math.round(brain.needs.fun), hunger: Math.round(brain.needs.hunger), social: Math.round(brain.needs.social) },
@@ -271,6 +276,7 @@ export const HELP = [
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
   '/toko card — 펫 카드',
+  '/toko name <이름> — 이름 짓기 · 바꾸기',
   '/toko plaza on | off | wave <이름|all> | heart <이름> | snack <이름> | cheer <이름> | invite — 광장',
   '/toko event <종류> — 이벤트 바로 보기(시연용)',
   '/bonk <이유> — 뿅망치로 Claude 때리기',
@@ -305,7 +311,7 @@ export const card = (brain: Brain): string => {
   }
   const traits = soul.traits
   return [
-    `**${soul.name}** · ${STAGE_LABEL[pet.growth.stage]} · ${COLOR_LABEL[pet.bones.color]} · ${RARITY_LABEL[pet.bones.rarity]}`,
+    `**${nameOf(pet) ?? UNNAMED}** · ${STAGE_LABEL[pet.growth.stage]} · ${COLOR_LABEL[pet.bones.color]} · ${RARITY_LABEL[pet.bones.rarity]}`,
     `성격: ${soul.personality}`,
     `말버릇: ${soul.quirk}`,
     `성향: 활발 ${traits.energetic} · 수다 ${traits.chatty} · 걱정 ${traits.worried} · 장난 ${traits.playful}`,
@@ -347,7 +353,7 @@ async function plazaCommand($: $, brain: Brain, words: readonly string[]): Promi
 }
 
 export async function openRoom($: $, ctx: Ctx): Promise<string> {
-  const opened = await $.ui.open({ id: ROOM_ID, title: `${ctx.brain.pet?.soul?.name ?? '토코'}의 방` })
+  const opened = await $.ui.open({ id: ROOM_ID, title: `${nameOf(ctx.brain.pet) ?? '토코'}의 방` })
   return opened.isPlaced ? '토코의 방을 열었어요.' : `방을 열 자리가 없어요: ${opened.reason}`
 }
 
@@ -420,6 +426,19 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: `${shopItem(value)?.name} 착용을 바꿨어요.` }
     case 'card':
       return { text: card(brain) }
+    case 'name': {
+      if (brain.pet?.soul === null || brain.pet?.soul === undefined) {
+        return { text: '아직 알이에요. 깨어나면 이름을 지어 주세요.' }
+      }
+      const name = rest.join(' ')
+      const problem = nameProblem(name)
+      if (problem !== null) {
+        return { text: problem }
+      }
+      const line = isAwaitingName(brain.pet) ? `${name}! 마음에 쏙 들어. 잘 부탁해` : `이제 나는 ${name}! 새 이름 마음에 들어`
+      await namePet($, brain, name, line)
+      return { text: `이름을 "${name}"(으)로 지었어요.` }
+    }
     case 'plaza':
       return plazaCommand($, brain, rest)
     case 'event': {
@@ -438,7 +457,7 @@ export async function bonkCommand($: $, ctx: Ctx, args: string): Promise<{ text:
   const reason = args.trim()
   const wasRunning = brain.isTurnRunning
   await startBonk($, brain, reason)
-  const name = brain.pet?.soul?.name ?? '토코'
+  const name = nameOf(brain.pet) ?? '토코'
   if (!wasRunning) {
     return { text: `${name}(이)가 뿅망치를 들었어요. 삑!` }
   }

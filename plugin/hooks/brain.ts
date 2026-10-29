@@ -25,7 +25,7 @@ import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earn
 import type { TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
-import { advanceDay, clampName, createFallbackSoul, createPet, nextStage } from './lib/pet'
+import { advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
 import { FRIEND_TTL_MS, PLAZA_POLL_MS, eventText, isForMe, parseSnapshot, plazaEndpoint } from './lib/plaza'
@@ -375,12 +375,12 @@ export async function startHatch($: $, brain: Brain): Promise<void> {
     brain.pet = { ...pet, soul, growth: { ...pet.growth, stage: 'baby' } }
     brain.isHatching = false
     brain.isDirty = true
-    remember(brain, 'hatch', soul.name, 3)
+    remember(brain, 'hatch', '', 3)
     if (brain.scene !== null) {
       setLook(brain.scene, lookOf(brain))
     }
     await sync($, brain)
-    await say($, brain, `안녕! 나는 ${soul.name}. ${soul.quirk.includes('"') ? '' : '잘 부탁해'}`.trim())
+    await askName($, brain)
     await save($, brain)
   }
   if (brain.isReducedMotion || brain.scene === null) {
@@ -405,6 +405,40 @@ export async function greet($: $, brain: Brain): Promise<void> {
   await reactLine($, brain, 'hello')
 }
 
+export async function askName($: $, brain: Brain): Promise<void> {
+  if (canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now))) {
+    await openOffer($, brain, 'name', fallbackLine(brain.random, OFFER_FALLBACK, 'name'))
+  }
+}
+
+export async function namePet($: $, brain: Brain, name: string, line: string): Promise<void> {
+  const pet = brain.pet
+  if (pet === null || pet.soul === null) {
+    return
+  }
+  brain.pet = { ...pet, soul: { ...pet.soul, name, isNamed: true } }
+  if (brain.offer?.kind === 'name') {
+    await closeOffer($, brain)
+  }
+  remember(brain, 'named', name, 2)
+  act(brain, direct.celebrate(), PRIORITY.event)
+  await sync($, brain)
+  await say($, brain, line)
+  await save($, brain)
+}
+
+async function answerName($: $, brain: Brain, choice: string): Promise<void> {
+  const soul = brain.pet?.soul
+  if (choice === 'auto' && soul !== null && soul !== undefined) {
+    await namePet($, brain, soul.name, `그럼 나는 ${soul.name}! 잘 부탁해`)
+    return
+  }
+  if (choice === 'accept') {
+    const filled = await $.prompt.fill({ text: '/toko name ', mode: 'replace' })
+    await say($, brain, filled.isFilled ? '입력란에 이름만 써서 보내 줘' : '/toko name <이름> 으로 알려 줘')
+  }
+}
+
 const CHOICES: readonly TokoChoice[] = [
   { key: 'accept', label: '좋아', hotkey: '1' },
   { key: 'later', label: '나중에', hotkey: '2' },
@@ -422,12 +456,18 @@ const choicesFor = (kind: string): readonly TokoChoice[] => {
       { key: 'later', label: '괜찮아', hotkey: '3' },
     ]
   }
+  if (kind === 'name') {
+    return [
+      { key: 'accept', label: '이름 지어 주기', hotkey: '1' },
+      { key: 'auto', label: '네가 지어', hotkey: '2' },
+    ]
+  }
   return CHOICES
 }
 
 export async function openOffer($: $, brain: Brain, kind: string, line: string): Promise<void> {
   brain.offer = { id: `${kind}-${brain.now}`, kind, line, choices: choicesFor(kind), at: brain.now, expiresAt: brain.now + OFFER_TIMEOUT_MS }
-  if (kind !== 'bonk-end') {
+  if (kind !== 'bonk-end' && kind !== 'name') {
     brain.budget = recordBubble(brain.budget, brain.now)
   }
   if (BREAK_KINDS.has(kind)) {
@@ -492,6 +532,10 @@ export async function answerOffer($: $, brain: Brain, choice: string): Promise<v
   await closeOffer($, brain)
   if (offer.kind === 'bonk-end') {
     await finishBonk($, brain, choice)
+    return
+  }
+  if (offer.kind === 'name') {
+    await answerName($, brain, choice)
     return
   }
   const answer: Answer = choice === 'accept' ? 'accept' : choice === 'stop' ? 'stop' : choice === 'ignored' ? 'ignored' : 'later'
@@ -567,7 +611,7 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
     case 'wrapup': {
       const reply = await ask($, brain, persona.linePrompt('퇴근 시각이 지났다. 오늘 한 일과 남은 일을 세 줄 이내로 정리한다. 줄은 " / "로 나눈다.', workMemoryFacts(brain)), 200)
       const summary = (reply === null ? null : persona.extractJson(reply)?.line) ?? ruleWrapup(brain)
-      $.ui.log(`${brain.pet?.soul?.name ?? '토코'}의 오늘 정리 — ${String(summary)}`)
+      $.ui.log(`${nameOf(brain.pet) ?? '토코'}의 오늘 정리 — ${String(summary)}`)
       brain.marks = { ...brain.marks, wrappedDay: today(brain) }
       healthReward(brain, HEALTH_REWARD.finishedOnTime)
       remember(brain, 'break-done', 'wrapup')
@@ -816,7 +860,7 @@ export async function submitBonk($: $, brain: Brain): Promise<void> {
     return
   }
   brain.bonk = { ...bonk, isSubmitted: true }
-  await $.prompt.submit({ text: persona.bonkMessage(brain.pet?.soul?.name ?? '토코', bonk.reason) })
+  await $.prompt.submit({ text: persona.bonkMessage(nameOf(brain.pet) ?? '토코', bonk.reason) })
 }
 
 async function finishBonk($: $, brain: Brain, choice: string): Promise<void> {
@@ -845,7 +889,7 @@ export async function apologize($: $, brain: Brain): Promise<string> {
   act(brain, direct.apologyAccepted(), PRIORITY.event)
   await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, 'apology'))
   await sync($, brain)
-  return `${brain.pet?.soul?.name ?? '토코'}(이)가 사과를 받아 줬어요. 하트를 띄웠어요.`
+  return `${nameOf(brain.pet) ?? '토코'}(이)가 사과를 받아 줬어요. 하트를 띄웠어요.`
 }
 
 export async function onTurnComplete($: $, brain: Brain, durationMs: number, reason: string, usage: TurnUsage | undefined): Promise<void> {
@@ -885,7 +929,7 @@ export async function notifyOnce($: $, brain: Brain, text: string): Promise<void
   }
   brain.budget = { ...brain.budget, notifications: brain.budget.notifications + 1 }
   try {
-    await $.ui.notify(text, { title: brain.pet?.soul?.name ?? 'Toko' })
+    await $.ui.notify(text, { title: nameOf(brain.pet) ?? 'Toko' })
   } catch {
     brain.isDirty = true
   }
@@ -1032,7 +1076,7 @@ export async function think($: $, brain: Brain): Promise<void> {
   if (brain.scene !== null) {
     setLook(brain.scene, lookOf(brain))
   }
-  if (brain.offer !== null && now >= brain.offer.expiresAt) {
+  if (brain.offer !== null && brain.offer.kind !== 'name' && now >= brain.offer.expiresAt) {
     await answerOffer($, brain, 'ignored')
   }
   await finishCountdown($, brain)
@@ -1044,6 +1088,10 @@ export async function think($: $, brain: Brain): Promise<void> {
   }
   const presence = presenceOf(brain)
   if (!canSpeak(presence, brain.settings, hour) || !isGap(presence)) {
+    return
+  }
+  if (isAwaitingName(brain.pet)) {
+    await askName($, brain)
     return
   }
   const candidates = gateCandidates(candidatesOf(contextOf(brain)), brain.budget, brain.settings, now)
@@ -1125,14 +1173,14 @@ export const plazaStatus = (brain: Brain): PlazaStatus => {
 
 const plazaMe = (brain: Brain) => ({
   id: brain.plazaId,
-  name: brain.pet?.soul?.name ?? '알',
+  name: nameOf(brain.pet) ?? '알',
   color: brain.pet?.bones.color ?? 'honey',
   mood: brain.mood,
   status: plazaStatus(brain),
 })
 
 export const isPlazaReady = (brain: Brain): boolean =>
-  brain.settings.isPlazaOn && brain.serverUrl.length > 0 && brain.pet?.soul !== null && brain.pet !== null
+  brain.settings.isPlazaOn && brain.serverUrl.length > 0 && nameOf(brain.pet) !== null
 
 export async function pollPlaza($: $, brain: Brain): Promise<void> {
   if (!isPlazaReady(brain) || brain.now - brain.lastPollAt < PLAZA_POLL_MS) {

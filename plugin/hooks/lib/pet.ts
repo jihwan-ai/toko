@@ -27,6 +27,8 @@ export const STAGE_LABEL: Readonly<Record<TokoStage, string>> = {
 
 export const COLOR_LABEL = { honey: '꿀', mint: '민트', peach: '복숭아', lavender: '라벤더' } as const
 
+export const UNNAMED = '이름 없음'
+
 export const createBones = (seed: number): TokoBones => {
   const random = createRandom(seed)
   return {
@@ -54,7 +56,14 @@ export const createTraits = (seed: number): TokoTraits => {
 
 export const createFallbackSoul = (seed: number, hatchedAt: string): TokoSoul => {
   const random = createRandom(seed ^ 0x51ed270b)
-  return { ...pick(random, FALLBACK_SOULS), traits: createTraits(seed), hatchedAt, isFallback: true }
+  return { ...pick(random, FALLBACK_SOULS), traits: createTraits(seed), hatchedAt, isFallback: true, isNamed: false }
+}
+
+export const isAwaitingName = (pet: TokoPet | null): boolean => pet?.soul?.isNamed === false
+
+export const nameOf = (pet: TokoPet | null): string | null => {
+  const soul = pet?.soul
+  return soul === null || soul === undefined || soul.isNamed === false ? null : soul.name
 }
 
 export const createPet = (seed: number, day: string): TokoPet => ({
