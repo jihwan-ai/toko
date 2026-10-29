@@ -25,6 +25,7 @@ import {
   gameCatch,
   gameMove,
   measured,
+  permissionAsked,
   petStatus,
   playCommand,
   plazaAct,
@@ -133,7 +134,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('classic.PermissionRequest', async ($, e, next) => {
-    await attention($, ctx)
+    await permissionAsked($, ctx)
     return next(e)
   }).catch(($, e, next) => next(e))
 

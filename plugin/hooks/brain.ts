@@ -25,6 +25,8 @@ import { HEALTH_REWARD, SPEND, balanceOf, buy, earnBalance, capTokenIncome, earn
 import type { TurnUsage } from './lib/economy'
 import { OFFER_TIMEOUT_MS, canAnimateQuietly, canNotify, canSpeak, emptyBudget, gateCandidates, isGap, isQuietNow, learnAnswer, recordBubble, rollBudget } from './lib/gate'
 import type { Answer } from './lib/gate'
+import { freshSignal, isSignal, signalText } from './lib/peers'
+import type { PeerSignal } from './lib/peers'
 import { advanceDay, clampName, createFallbackSoul, createPet, isAwaitingName, nameOf, nextStage } from './lib/pet'
 import * as persona from './lib/persona'
 import { DAILY_AI_CALLS, OFFER_FALLBACK, REACTION_FALLBACK, fallbackLine } from './lib/persona'
@@ -64,6 +66,7 @@ export const KEY = {
   plazaId: 'toko:plaza-id',
   marks: 'toko:marks',
   earnPrefix: 'toko:earn:',
+  signalPrefix: 'toko:signal:',
 } as const
 
 export const DEFAULT_SETTINGS: TokoSettings = {
@@ -76,6 +79,7 @@ export const DEFAULT_SETTINGS: TokoSettings = {
   isNotifyOn: false,
   isMoodSensing: false,
   isPlazaOn: true,
+  isPeersOn: true,
 }
 
 const emptyMemory = (): TokoMemory => ({
@@ -138,6 +142,8 @@ export type Brain = {
   feed: readonly { at: number; text: string }[]
   lastPollAt: number
   seenEvents: readonly string[]
+  promptLabel: string
+  peersSeenAt: number
   isDirty: boolean
 }
 
@@ -186,6 +192,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   feed: [],
   lastPollAt: 0,
   seenEvents: [],
+  promptLabel: '',
+  peersSeenAt: 0,
   isDirty: false,
 })
 
@@ -224,6 +232,8 @@ export async function load($: $, brain: Brain): Promise<void> {
   const earnKeys = keys.filter(key => key.startsWith(KEY.earnPrefix))
   const earns = await Promise.all(earnKeys.map(async key => ({ key, value: await $.store.get(key) })))
   await settleEarnings($, brain, earns, day)
+  await dropStaleSignals($, keys.filter(key => key.startsWith(KEY.signalPrefix)), day)
+  brain.peersSeenAt = now
   brain.earn = emptyEarn(day)
   brain.workingSince = now
   brain.lastInputAt = now
@@ -241,6 +251,15 @@ async function settleEarnings($: $, brain: Brain, earns: readonly { key: string;
   }
   if (stale.length > 0) {
     await $.store.set(KEY.wallet, brain.wallet)
+  }
+}
+
+async function dropStaleSignals($: $, keys: readonly string[], day: string): Promise<void> {
+  for (const key of keys) {
+    const value = await $.store.get(key)
+    if (!isSignal(value) || dayKey(value.at) !== day) {
+      await $.store.delete(key)
+    }
   }
 }
 
@@ -901,6 +920,9 @@ export async function onTurnComplete($: $, brain: Brain, durationMs: number, rea
     brain.countdown = null
     await update($, countdownAtom, () => null)
   }
+  if (reason !== 'aborted') {
+    await signalPeers($, brain, 'done')
+  }
   if (reason !== 'answer' || usage === undefined) {
     act(brain, direct.flinch(), PRIORITY.reaction)
     return
@@ -1222,6 +1244,31 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   if (!isQuietNow(brain.settings, hourOf(brain.now))) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')
   }
+}
+
+const signalKey = (brain: Brain): string => `${KEY.signalPrefix}${brain.sessionId}`
+
+export async function signalPeers($: $, brain: Brain, kind: PeerSignal['kind']): Promise<void> {
+  const signal: PeerSignal = { kind, at: brain.now, label: brain.promptLabel }
+  await $.store.set(signalKey(brain), signal)
+}
+
+export async function forgetSignal($: $, brain: Brain): Promise<void> {
+  await $.store.delete(signalKey(brain))
+}
+
+export async function pollPeers($: $, brain: Brain): Promise<void> {
+  const keys = (await $.store.keys()).filter(key => key.startsWith(KEY.signalPrefix))
+  const entries = await Promise.all(keys.map(async key => ({ key, value: await $.store.get(key) })))
+  const signal = freshSignal(entries, signalKey(brain), brain.peersSeenAt)
+  if (signal === null) {
+    return
+  }
+  brain.peersSeenAt = signal.at
+  if (!brain.settings.isPeersOn || isQuietNow(brain.settings, hourOf(brain.now))) {
+    return
+  }
+  await say($, brain, signalText(signal))
 }
 
 export async function sendPlaza($: $, brain: Brain, kind: PlazaAction, to: string | null): Promise<string> {

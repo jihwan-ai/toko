@@ -71,6 +71,7 @@ export type TokoSettings = {
   isNotifyOn: boolean
   isMoodSensing: boolean
   isPlazaOn: boolean
+  isPeersOn: boolean
 }
 
 export type TokoChoice = { key: string; label: string; hotkey: string }
