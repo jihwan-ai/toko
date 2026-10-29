@@ -74,6 +74,11 @@ const displayWidth = (text: string): number => [...text].reduce((width, char) =>
 
 const MOOD_LABEL: Readonly<Record<TokoMood, string>> = { excited: '신남', calm: '평온', sleepy: '졸림', worried: '걱정', sulky: '삐짐' }
 
+const SHELVES = [
+  ['상점', SHOP.filter(item => item.kind !== 'pet')],
+  ['애완동물', SHOP.filter(item => item.kind === 'pet')],
+] as const
+
 const press = (fn: () => Promise<unknown>) => () => {
   void fn()
 }
@@ -412,16 +417,18 @@ export const register: Register = (on, options) => {
             </Text>
           </Box>
         )}
-        <Box flexDirection="column">
-          <Text weight="bold">상점</Text>
-          <Box flexWrap="wrap" gap={1}>
-            {SHOP.map(item => (
-              <Button key={`buy-${item.id}`} onPress={press(() => buyItem($, ctx, item.id))}>
-                {item.name} <Text dimColor>{String(item.price)}</Text>
-              </Button>
-            ))}
+        {SHELVES.map(([title, shelf]) => (
+          <Box key={`shelf-${title}`} flexDirection="column">
+            <Text weight="bold">{title}</Text>
+            <Box flexWrap="wrap" gap={1}>
+              {shelf.map(item => (
+                <Button key={`buy-${item.id}`} onPress={press(() => buyItem($, ctx, item.id))}>
+                  {item.name} <Text dimColor>{String(item.price)}</Text>
+                </Button>
+              ))}
+            </Box>
           </Box>
-        </Box>
+        ))}
         {owned.length > 0 && (
           <Box flexDirection="column">
             <Text weight="bold">꾸미기</Text>

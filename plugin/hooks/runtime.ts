@@ -23,7 +23,7 @@ import { createCanvas, encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, tick } from './lib/scene'
 import { MINUTE } from './lib/time'
 import { todayText } from './lib/today'
-import type { TurnUsage } from './lib/economy'
+import type { ShopItem, TurnUsage } from './lib/economy'
 
 type $ = EngineInterface
 
@@ -365,10 +365,15 @@ export const card = (brain: Brain): string => {
   ].join('\n')
 }
 
+const shopLine = (brain: Brain, item: ShopItem): string =>
+  `- ${item.id} · ${item.name} · ${item.price}코인${brain.wallet.items.includes(item.id) && item.kind !== 'snack' ? ' (보유)' : ''}`
+
 const shopText = (brain: Brain): string =>
   [
     '상점 (/toko buy <id>):',
-    ...SHOP.map(item => `- ${item.id} · ${item.name} · ${item.price}코인${brain.wallet.items.includes(item.id) && item.kind !== 'snack' ? ' (보유)' : ''}`),
+    ...SHOP.filter(item => item.kind !== 'pet').map(item => shopLine(brain, item)),
+    '애완동물:',
+    ...SHOP.filter(item => item.kind === 'pet').map(item => shopLine(brain, item)),
     `코인 ${balance(brain)}`,
   ].join('\n')
 

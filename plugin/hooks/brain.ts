@@ -539,6 +539,7 @@ export const lookOf = (brain: Brain): Look => ({
   hat: wornOf(brain.wallet, 'hat'),
   neck: wornOf(brain.wallet, 'neck'),
   hammer: wornOf(brain.wallet, 'hammer') ?? 'toy',
+  critter: wornOf(brain.wallet, 'pet'),
 })
 
 export const ensureScene = (brain: Brain, width: number): Scene => {
@@ -1169,7 +1170,7 @@ export async function purchase($: $, brain: Brain, id: string): Promise<string> 
   }
   remember(brain, 'bought', id)
   act(brain, direct.celebrate(), PRIORITY.reaction)
-  await say($, brain, item?.kind === 'hat' || item?.kind === 'neck' ? '어때? 잘 어울려?' : `${item?.name ?? id} 샀다!`)
+  await say($, brain, item?.kind === 'hat' || item?.kind === 'neck' ? '어때? 잘 어울려?' : item?.kind === 'pet' ? `${item.name}, 잘 부탁해!` : `${item?.name ?? id} 샀다!`)
   await save($, brain)
   return `${item?.name ?? id}을(를) 샀어요.`
 }

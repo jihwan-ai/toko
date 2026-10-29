@@ -11,6 +11,7 @@ import {
   BUTTERFLY,
   CLOUD,
   COIN,
+  CRITTERS,
   CRUMB,
   CUP,
   DOLL,
@@ -106,7 +107,10 @@ export type Look = {
   hat?: string
   neck?: string
   hammer: string
+  critter?: string
 }
+
+export type Follower = { x: number; dir: 1 | -1; side: 1 | -1; isMoving: boolean }
 
 export type Scene = {
   width: number
@@ -119,6 +123,7 @@ export type Scene = {
   effects: Effect[]
   props: Prop[]
   visitors: Visitor[]
+  follower: Follower
   nextBlinkAt: number
   blinkUntil: number
   look: Look
@@ -147,6 +152,7 @@ export const createScene = (width: number, look: Look, planIdle: (scene: Scene) 
   effects: [],
   props: [],
   visitors: [],
+  follower: { x: Math.max(0, Math.round(width / 2 - PET_WIDTH / 2)), dir: 1, side: -1, isMoving: false },
   nextBlinkAt: 3000,
   blinkUntil: 0,
   look,
@@ -275,6 +281,30 @@ const moveVisitor = (visitor: Visitor, scene: Scene, seconds: number): Visitor =
   return x < -PET_WIDTH * 2 || x > scene.width + PET_WIDTH ? { ...visitor, x, until: scene.clock } : { ...visitor, x }
 }
 
+const CRITTER_GAP = 2
+const CRITTER_SPEED = 16
+
+const critterWidth = (grid: Grid): number => grid.reduce((max, row) => Math.max(max, row.length), 0)
+
+const follow = (scene: Scene, dt: number): void => {
+  const critter = scene.look.critter === undefined ? undefined : CRITTERS[scene.look.critter]
+  const follower = scene.follower
+  if (critter === undefined) {
+    scene.follower = { ...follower, x: scene.x, isMoving: false }
+    return
+  }
+  const pose = scene.current?.pose
+  const side = pose === 'walk' || pose === 'run' ? (scene.dir > 0 ? -1 : 1) : follower.side
+  const target = pose === 'hidden' ? scene.x : side < 0 ? scene.x - CRITTER_GAP - critterWidth(critter.stand) : scene.x + PET_WIDTH + CRITTER_GAP
+  const distance = target - follower.x
+  const move = (CRITTER_SPEED * dt) / 1000
+  if (Math.abs(distance) <= move) {
+    scene.follower = { x: target, dir: side < 0 ? 1 : -1, side, isMoving: false }
+    return
+  }
+  scene.follower = { x: follower.x + Math.sign(distance) * move, dir: distance > 0 ? 1 : -1, side, isMoving: true }
+}
+
 const ambientEffects = (scene: Scene, random: Random): void => {
   const pose = scene.current?.pose
   if (pose === 'sleep' && random() < 0.04) {
@@ -300,6 +330,7 @@ export const tick = (scene: Scene, dt: number, random: Random): void => {
     scene.current = null
     advanceStep(scene)
   }
+  follow(scene, dt)
   if (scene.clock >= scene.nextBlinkAt) {
     scene.blinkUntil = scene.clock + 160
     scene.nextBlinkAt = scene.clock + 3000 + random() * 3000
@@ -468,6 +499,25 @@ export const paintPet = (canvas: Canvas, scene: Scene, pose: Pose, elapsed: numb
   drawHammer(canvas, scene, frame.hammer, px, py, scale)
 }
 
+const critterGrid = (critter: { stand: Grid; step: Grid; fur: string }, pose: Pose, isMoving: boolean, clock: number): Grid => {
+  if (pose === 'sleep') {
+    return critter.stand.slice(0, -1).map(row => row.replaceAll('e', critter.fur))
+  }
+  if (isMoving) {
+    return cycle(clock, 140, 2) === 0 ? critter.stand : critter.step
+  }
+  return pose === 'sit' || pose === 'full' ? critter.stand.slice(0, -1) : critter.stand
+}
+
+const paintCritter = (canvas: Canvas, scene: Scene, pose: Pose, x: number, groundY: number, dir: 1 | -1, isMoving: boolean, scale: number): void => {
+  const critter = scene.look.critter === undefined ? undefined : CRITTERS[scene.look.critter]
+  if (critter === undefined) {
+    return
+  }
+  const grid = critterGrid(critter, pose, isMoving, scene.clock)
+  drawGrid(canvas, grid, x, groundY - grid.length * scale, scene.palette, { scale, isFlipped: dir < 0 })
+}
+
 const EFFECT_GRIDS: Readonly<Record<EffectKind, (age: number) => Grid>> = {
   z: () => ZZZ,
   heart: () => HEART,
@@ -522,6 +572,7 @@ export const paint = (scene: Scene, canvas: Canvas): void => {
     drawVisitor(canvas, scene, visitor)
   }
   const pose = scene.current?.pose ?? 'idle'
+  paintCritter(canvas, scene, pose, Math.round(scene.follower.x), canvas.height, scene.follower.dir, scene.follower.isMoving, 1)
   paintPet(canvas, scene, pose, scene.clock - scene.stepAt, Math.round(scene.x), 1, 1)
   for (const effect of scene.effects) {
     drawGrid(canvas, EFFECT_GRIDS[effect.kind](scene.clock - effect.born), effect.x, effect.y, scene.palette)
@@ -545,5 +596,7 @@ export const paintRoom = (scene: Scene, canvas: Canvas, items: readonly string[]
     drawGrid(canvas, ROOM_PROPS.lamp ?? [], canvas.width - 14, floor - 10, scene.palette, { scale: 2 })
   }
   const pose = scene.current?.pose === 'sleep' ? 'sleep' : scene.look.mood === 'excited' ? 'dance' : 'idle'
-  paintPet(canvas, scene, pose, scene.clock, Math.round(canvas.width / 2 - PET_WIDTH), floor - 30, 2)
+  const petX = Math.round(canvas.width / 2 - PET_WIDTH)
+  paintPet(canvas, scene, pose, scene.clock, petX, floor - 30, 2)
+  paintCritter(canvas, scene, pose === 'sleep' ? 'sleep' : 'sit', petX + PET_WIDTH * 2 + 4, floor + 2, -1, false, 2)
 }

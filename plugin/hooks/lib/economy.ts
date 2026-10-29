@@ -39,7 +39,7 @@ export const balanceOf = (wallet: TokoWallet, earns: readonly TokoEarn[]): numbe
 export const earnedTokenToday = (earns: readonly TokoEarn[], day: string): number =>
   earns.filter(earn => earn.day === day).reduce((sum, earn) => sum + earn.earned, 0)
 
-export type ShopKind = 'snack' | 'hat' | 'neck' | 'room' | 'hammer'
+export type ShopKind = 'snack' | 'hat' | 'neck' | 'room' | 'hammer' | 'pet'
 
 export type ShopItem = { id: string; name: string; kind: ShopKind; price: number; restores?: number }
 
@@ -57,6 +57,9 @@ export const SHOP: readonly ShopItem[] = [
   { id: 'duck', name: '고무 오리 망치', kind: 'hammer', price: 100 },
   { id: 'pillow', name: '베개 망치', kind: 'hammer', price: 100 },
   { id: 'leek', name: '대파 망치', kind: 'hammer', price: 100 },
+  { id: 'chick', name: '병아리', kind: 'pet', price: 60 },
+  { id: 'hamster', name: '햄스터', kind: 'pet', price: 90 },
+  { id: 'kitten', name: '아기 고양이', kind: 'pet', price: 120 },
 ]
 
 export const shopItem = (id: string): ShopItem | undefined => SHOP.find(item => item.id === id)
