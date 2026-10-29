@@ -7,6 +7,7 @@ import type {
   TokoCounts,
   TokoEarn,
   TokoEarning,
+  TokoFocus,
   TokoFriend,
   TokoGame,
   TokoMemory,
@@ -60,6 +61,7 @@ const ouchAtom = atom({ plugin: 'toko', key: 'ouch' } as const, false)
 const earningsAtom = atom({ plugin: 'toko', key: 'earnings' } as const, [])
 const gameAtom = atom({ plugin: 'toko', key: 'game' } as const, null)
 const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
+const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
@@ -150,6 +152,8 @@ export type Brain = {
   isHatching: boolean
   offer: TokoOffer | null
   countdown: Countdown | null
+  focus: TokoFocus | null
+  focusDoneMinutes: number | null
   bonk: Bonk | null
   game: TokoGame | null
   gameSpawnAt: number
@@ -205,6 +209,8 @@ export const createBrain = (seed: number, serverUrl: string): Brain => ({
   isHatching: false,
   offer: null,
   countdown: null,
+  focus: null,
+  focusDoneMinutes: null,
   bonk: null,
   game: null,
   gameSpawnAt: 0,
@@ -400,7 +406,7 @@ async function announce($: $, brain: Brain, phrases: readonly string[]): Promise
     return
   }
   act(brain, direct.celebrate(), PRIORITY.reaction)
-  if (!isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!isHushed(brain)) {
     await say($, brain, phrases.join(' · '), 'quiet')
   }
 }
@@ -450,6 +456,7 @@ export async function sync($: $, brain: Brain): Promise<void> {
     update($, plazaAtom, () => ({ isOnline: brain.serverUrl.length > 0 && brain.settings.isPlazaOn, friends: brain.friends, feed: brain.feed })),
     update($, lessonsAtom, () => brain.memory.lessons),
     update($, progressAtom, () => progressOf(brain)),
+    update($, focusAtom, () => brain.focus),
   ])
 }
 
@@ -492,8 +499,12 @@ const act = (brain: Brain, steps: readonly Step[], priority: number): void => {
   }
 }
 
+export const isFocusing = (brain: Brain): boolean => brain.focus !== null && brain.now < brain.focus.endsAt
+
+const isHushed = (brain: Brain): boolean => isQuietNow(brain.settings, hourOf(brain.now)) || isFocusing(brain)
+
 export const canTalk = (brain: Brain): boolean =>
-  canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now)) && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4
+  canSpeak(presenceOf(brain), brain.settings, hourOf(brain.now)) && brain.budget.bubbles.filter(at => brain.now - at < HOUR).length < 4 && !isFocusing(brain)
 
 const presenceOf = (brain: Brain) => ({
   now: brain.now,
@@ -525,7 +536,7 @@ export async function reactLine($: $, brain: Brain, key: string): Promise<void> 
 }
 
 async function quietLine($: $, brain: Brain, key: string): Promise<void> {
-  if (!isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!isHushed(brain)) {
     await say($, brain, fallbackLine(brain.random, REACTION_FALLBACK, key), 'quiet')
   }
 }
@@ -744,8 +755,9 @@ async function runAccepted($: $, brain: Brain, kind: OfferKind): Promise<void> {
   switch (kind) {
     case 'stretch':
     case 'plaza-stretch':
-      act(brain, kind === 'stretch' ? direct.stretch() : direct.groupStretch(brain.friends.map(friend => friend.color)), PRIORITY.event)
-      await startCountdown($, brain, { kind, label: '같이 기지개', endsAt: now + 30_000, reward: kind === 'stretch' ? HEALTH_REWARD.breakAccepted : HEALTH_REWARD.plazaStretch, then: 'praise' })
+    case 'focus-break':
+      act(brain, kind === 'plaza-stretch' ? direct.groupStretch(brain.friends.map(friend => friend.color)) : direct.stretch(), PRIORITY.event)
+      await startCountdown($, brain, { kind, label: '같이 기지개', endsAt: now + 30_000, reward: kind === 'plaza-stretch' ? HEALTH_REWARD.plazaStretch : HEALTH_REWARD.breakAccepted, then: 'praise' })
       await say($, brain, '쭉— 팔을 머리 위로. 30초만 같이 펴자')
       if (kind === 'plaza-stretch') {
         await sendPlaza($, brain, 'stretch-call', null)
@@ -820,7 +832,41 @@ export async function breathe($: $, brain: Brain, rounds: number): Promise<void>
   await say($, brain, '들이쉬고… 2, 3, 4. 내쉬고… 2, 3, 4, 5, 6')
 }
 
-const BREAK_STAT: Readonly<Record<string, StatKey>> = { stretch: 'stretch', 'plaza-stretch': 'stretch', 'eye-rest': 'eye-rest' }
+const BREAK_STAT: Readonly<Record<string, StatKey>> = { stretch: 'stretch', 'plaza-stretch': 'stretch', 'focus-break': 'stretch', 'eye-rest': 'eye-rest' }
+
+export const FOCUS_MINUTES = 25
+
+export async function startFocus($: $, brain: Brain, minutes: number): Promise<void> {
+  if (brain.offer !== null && brain.offer.kind !== 'name' && brain.offer.kind !== 'bonk-end') {
+    await answerOffer($, brain, 'ignored')
+  }
+  brain.focus = { endsAt: brain.now + minutes * MINUTE, minutes }
+  brain.focusDoneMinutes = null
+  remember(brain, 'focus', String(minutes))
+  act(brain, [{ pose: 'sit', ms: 2500 }], PRIORITY.reaction)
+  await hush($)
+  await update($, focusAtom, () => brain.focus)
+}
+
+export async function stopFocus($: $, brain: Brain): Promise<void> {
+  brain.focus = null
+  await update($, focusAtom, () => null)
+}
+
+async function finishFocus($: $, brain: Brain): Promise<void> {
+  const focus = brain.focus
+  if (focus === null || brain.now < focus.endsAt) {
+    return
+  }
+  brain.focus = null
+  brain.focusDoneMinutes = focus.minutes
+  healthReward(brain, HEALTH_REWARD.focusDone)
+  count(brain, 'focus')
+  remember(brain, 'focus-done', String(focus.minutes), 1.5)
+  act(brain, direct.celebrate(), PRIORITY.reaction)
+  await update($, focusAtom, () => null)
+  await notifyOnce($, brain, `${focus.minutes}분 집중 끝! 잠깐 쉬어 가요`)
+}
 
 export async function finishCountdown($: $, brain: Brain): Promise<void> {
   const countdown = brain.countdown
@@ -1292,11 +1338,12 @@ export async function think($: $, brain: Brain): Promise<void> {
     await answerOffer($, brain, 'ignored')
   }
   await finishCountdown($, brain)
+  await finishFocus($, brain)
   await stepGame($, brain)
   await watchLongTurn($, brain)
   await maybeEncounter($, brain)
   await checkProgress($, brain)
-  if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || brain.bonk !== null) {
+  if (brain.isThinking || brain.offer !== null || brain.countdown !== null || brain.game !== null || brain.bonk !== null || isFocusing(brain)) {
     return
   }
   const presence = presenceOf(brain)
@@ -1305,6 +1352,12 @@ export async function think($: $, brain: Brain): Promise<void> {
   }
   if (isAwaitingName(brain.pet)) {
     await askName($, brain)
+    return
+  }
+  if (brain.focusDoneMinutes !== null) {
+    const minutes = brain.focusDoneMinutes
+    brain.focusDoneMinutes = null
+    await openOffer($, brain, 'focus-break', `${minutes}분 집중 끝! +${HEALTH_REWARD.focusDone} 코인. 기지개 켜고 올래?`)
     return
   }
   const candidates = gateCandidates(candidatesOf(contextOf(brain)), brain.budget, brain.settings, now)
@@ -1329,7 +1382,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
   const elapsed = brain.now - brain.turnStartedAt
   if (elapsed >= MINUTE && brain.longTurnStage === 0) {
     brain.longTurnStage = 1
-    if (canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion) && brain.countdown === null && brain.bonk === null) {
+    if (canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion) && brain.countdown === null && brain.bonk === null && !isFocusing(brain)) {
       act(brain, direct.eyeRest(20_000), PRIORITY.encounter)
       await startCountdown($, brain, { kind: 'quiet-eye', label: '기다리는 동안 먼 곳 보기', endsAt: brain.now + 20_000, reward: 0, then: 'quiet' })
     }
@@ -1342,7 +1395,7 @@ async function watchLongTurn($: $, brain: Brain): Promise<void> {
 
 async function maybeEncounter($: $, brain: Brain): Promise<void> {
   const scene = brain.scene
-  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || brain.bonk !== null) {
+  if (scene === null || isBusy(scene) || brain.offer !== null || brain.game !== null || brain.bonk !== null || isFocusing(brain)) {
     return
   }
   if (!canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
@@ -1432,7 +1485,7 @@ async function receivePlaza($: $, brain: Brain, event: PlazaEvent): Promise<void
   if (brain.scene !== null && !isBusy(brain.scene) && canAnimateQuietly(brain.settings, hourOf(brain.now), brain.isReducedMotion)) {
     act(brain, event.kind === 'snack' ? direct.feed() : direct.friendVisit(event.from.id, event.from.color), PRIORITY.encounter)
   }
-  if (!isQuietNow(brain.settings, hourOf(brain.now))) {
+  if (!isHushed(brain)) {
     await say($, brain, eventText(event).slice(0, 60), 'quiet')
   }
 }

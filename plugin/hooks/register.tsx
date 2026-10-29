@@ -23,6 +23,7 @@ import {
   choose,
   createCtx,
   feedCommand,
+  focusCommand,
   gameCatch,
   gameMove,
   measured,
@@ -56,6 +57,7 @@ const countdownAtom = atom({ plugin: 'toko', key: 'countdown' } as const, null)
 const plazaAtom = atom({ plugin: 'toko', key: 'plaza' } as const, null)
 const lessonsAtom = atom({ plugin: 'toko', key: 'lessons' } as const, [])
 const progressAtom = atom({ plugin: 'toko', key: 'progress' } as const, null)
+const focusAtom = atom({ plugin: 'toko', key: 'focus' } as const, null)
 
 const MIN_PIXEL_COLUMNS = 60
 const BAND_TREE_ROWS = BAND_ROWS + 3
@@ -67,6 +69,8 @@ const MOOD_LABEL: Readonly<Record<TokoMood, string>> = { excited: '신남', calm
 const press = (fn: () => Promise<unknown>) => () => {
   void fn()
 }
+
+const left = (seconds: number): string => (seconds >= 60 ? `${Math.ceil(seconds / 60)}분 남음` : `${seconds}초 남음`)
 
 const bar = (value: number): string => `${'█'.repeat(Math.round(value / 10))}${'░'.repeat(10 - Math.round(value / 10))}`
 
@@ -153,13 +157,14 @@ export const register: Register = (on, options) => {
       ctx.band = null
       return next(e)
     }
-    const [mood, bubble, wallet, countdown, game, progress] = await Promise.all([
+    const [mood, bubble, wallet, countdown, game, progress, focus] = await Promise.all([
       read($, moodAtom),
       read($, bubbleAtom),
       read($, walletAtom),
       read($, countdownAtom),
       read($, gameAtom),
       read($, progressAtom),
+      read($, focusAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
@@ -171,6 +176,7 @@ export const register: Register = (on, options) => {
       pet.growth.stage === 'egg' ? '부화 중' : MOOD_LABEL[mood],
       `코인 ${wallet?.coins ?? 0}`,
       ...(progress === null || pet.soul === null ? [] : [`퀘스트 ${progress.quests.filter(quest => quest.isDone).length}/${progress.quests.length}`]),
+      ...(focus === null ? [] : [`집중 ${left(seconds(focus.endsAt))}`]),
       ...(countdown === null ? [] : [`${countdown.label} ${seconds(countdown.endsAt)}초`]),
       ...(game === null ? [] : [`벌레 ${game.caught}마리 · ${seconds(game.endsAt)}초`]),
     ].join(' · ')
@@ -258,7 +264,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: ROOM_ID }, async ($, e) => {
-    const [pet, wallet, needs, mood, plaza, lessons, progress] = await Promise.all([
+    const [pet, wallet, needs, mood, plaza, lessons, progress, focus] = await Promise.all([
       read($, petAtom),
       read($, walletAtom),
       read($, needsAtom),
@@ -266,6 +272,7 @@ export const register: Register = (on, options) => {
       read($, plazaAtom),
       read($, lessonsAtom),
       read($, progressAtom),
+      read($, focusAtom),
     ])
     const { Box, Text, Button } = $.ui.resolve(e)
     const brain = ctx.brain
@@ -304,6 +311,20 @@ export const register: Register = (on, options) => {
             코인 {wallet?.coins ?? 0} · 간식 {snacks}개 · 함께한 날 {pet?.growth.daysTogether ?? 0}일 · 휴식 {pet?.growth.breaksAccepted ?? 0}번
           </Text>
           {lessons.length > 0 && <Text dimColor>배운 것: {lessons.at(-1)}</Text>}
+        </Box>
+        <Box flexDirection="column">
+          <Text weight="bold">집중</Text>
+          {focus === null ? (
+            <Box gap={1}>
+              <Button key="focus-start" label="25분 집중" onPress={press(() => focusCommand($, ctx, undefined))} />
+              <Text dimColor>그동안 토코가 말을 걸지 않아요</Text>
+            </Box>
+          ) : (
+            <Box gap={1}>
+              <Text>집중 중 · {left(Math.max(0, Math.ceil((focus.endsAt - brain.now) / 1000)))}</Text>
+              <Button key="focus-stop" label="그만하기" onPress={press(() => focusCommand($, ctx, 'off'))} />
+            </Box>
+          )}
         </Box>
         {progress !== null && progress.quests.length > 0 && (
           <Box flexDirection="column">

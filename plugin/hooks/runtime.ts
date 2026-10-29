@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { TokoChoice, TokoSettings } from '../types'
 
-import { answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startHatch, sync, think, toggleWear } from './brain'
+import { FOCUS_MINUTES, answerOffer, apologize, askName, balance, catchInGame, createBrain, ensureScene, feed, greet, hush, load, moveInGame, namePet, offerLine, onAttention, onEdit, onGit, onMeasure, onSubagents, onTest, onTurnComplete, onTyping, openOffer, play, pollPlaza, progressOf, purchase, reflect, refreshShared, remember, resetDayIfNeeded, save, sendPlaza, startBonk, startFocus, startHatch, stopFocus, sync, think, toggleWear } from './brain'
 import type { Brain } from './brain'
 import { badgeText } from './lib/badges'
 import { SHOP, shopItem } from './lib/economy'
@@ -17,6 +17,7 @@ import { hashText } from './lib/random'
 import type { Canvas } from './lib/raster'
 import { createCanvas, encodeCells } from './lib/raster'
 import { BAND_ROWS, paint, paintRoom, tick } from './lib/scene'
+import { MINUTE } from './lib/time'
 import type { TurnUsage } from './lib/economy'
 
 type $ = EngineInterface
@@ -283,6 +284,7 @@ export const HELP = [
   '/toko mood-sense on | off — 짜증 감지(프롬프트를 모델에 보냄, 기본 꺼짐)',
   '/toko shop | buy <id> | wear <id> — 상점',
   '/toko card — 펫 카드',
+  '/toko focus 25 | focus off — 집중 타이머(그동안 말 걸지 않기)',
   '/toko quests — 오늘의 퀘스트',
   '/toko badges — 업적',
   '/toko name <이름> — 이름 짓기 · 바꾸기',
@@ -443,6 +445,8 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
       return { text: `${shopItem(value)?.name} 착용을 바꿨어요.` }
     case 'card':
       return { text: card(brain) }
+    case 'focus':
+      return { text: await focusCommand($, ctx, value) }
     case 'quests':
       return { text: questText(progressOf(brain).quests) }
     case 'badges':
@@ -470,6 +474,27 @@ export async function tokoCommand($: $, ctx: Ctx, args: string): Promise<{ text:
     default:
       return { text: HELP }
   }
+}
+
+export async function focusCommand($: $, ctx: Ctx, value: string | undefined): Promise<string> {
+  await now($, ctx)
+  const brain = ctx.brain
+  if (value === 'off' || value === 'stop') {
+    if (brain.focus === null) {
+      return '집중 중이 아니에요.'
+    }
+    await stopFocus($, brain)
+    return '집중을 멈췄어요. 코인은 끝까지 했을 때만 받아요.'
+  }
+  if (value === undefined && brain.focus !== null) {
+    return `집중 중이에요. ${Math.max(1, Math.ceil((brain.focus.endsAt - brain.now) / MINUTE))}분 남았어요. 멈추려면 /toko focus off`
+  }
+  const minutes = value === undefined ? FOCUS_MINUTES : Number(value)
+  if (!Number.isInteger(minutes) || minutes < 5 || minutes > 120) {
+    return '5~120 사이 분으로 알려 주세요. 예: /toko focus 25'
+  }
+  await startFocus($, brain, minutes)
+  return `${minutes}분 동안 조용히 있을게요. 끝나면 쉬자고 할게요.`
 }
 
 export async function bonkCommand($: $, ctx: Ctx, args: string): Promise<{ text: string; context?: readonly string[] }> {

@@ -12,6 +12,7 @@ export const QUESTS: readonly QuestDef[] = [
   { id: 'water', label: '물 한 모금', key: 'water', goal: 1, group: 'rest' },
   { id: 'test-pass', label: '테스트 통과', key: 'test-pass', goal: 1, group: 'work' },
   { id: 'commit', label: '커밋하기', key: 'commit', goal: 1, group: 'work' },
+  { id: 'focus', label: '집중 타이머 끝내기', key: 'focus', goal: 1, group: 'work' },
   { id: 'fed', label: '토코 밥 주기', key: 'fed', goal: 1, group: 'care' },
   { id: 'played', label: '같이 놀기', key: 'played', goal: 1, group: 'care' },
   { id: 'cheer', label: '광장 친구에게 손짓', key: 'cheer', goal: 1, group: 'care', needsPlaza: true },

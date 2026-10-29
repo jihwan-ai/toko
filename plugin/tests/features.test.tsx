@@ -68,6 +68,12 @@ const engine = (on: On, store: Record<string, unknown>): World => {
   return world
 }
 
+const wait = async (clock: { advance: (ms: number) => Promise<void> }, ms: number) => {
+  for (let left = ms; left > 0; left -= 5 * 60_000) {
+    await clock.advance(Math.min(left, 5 * 60_000))
+  }
+}
+
 const begin = async ($: Engine) => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 
 const end = async ($: Engine) => $.session.end({ reason: 'other', sessionId: 'session-1', resume: {} } as never)
@@ -132,7 +138,7 @@ test('a test that failed three times and then passes unlocks 역전승, pays coi
   expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(20)
 })
 
-const QUESTS_PAID = { day: '2026-10-29', ids: ['stretch', 'eye-rest', 'water', 'test-pass', 'commit', 'fed', 'played', 'cheer', 'all'] }
+const QUESTS_PAID = { day: '2026-10-29', ids: ['stretch', 'eye-rest', 'water', 'test-pass', 'commit', 'focus', 'fed', 'played', 'cheer', 'all'] }
 
 test('a badge another terminal already unlocked is not paid twice', async ($, on) => {
   const clock = mock.clock(on, { now: START })
@@ -174,6 +180,10 @@ test('today’s quests show on the band, and finishing all three pays out once w
     if (label === '물 한 모금') await takeBreak('water', 500)
     if (label === '테스트 통과') await bash($, 'npm test')
     if (label === '커밋하기') await bash($, 'git commit -m done')
+    if (label === '집중 타이머 끝내기') {
+      await $.command.run({ command: 'toko', args: 'focus 5' } as never)
+      await wait(clock, 5 * 60_000 + 2500)
+    }
     if (label === '토코 밥 주기') await $.command.run({ command: 'feed', args: '' } as never)
     if (label === '같이 놀기') await $.command.run({ command: 'play', args: '' } as never)
     if (label === '광장 친구에게 손짓') await $.command.run({ command: 'toko', args: 'plaza wave all' } as never)
@@ -189,4 +199,47 @@ test('today’s quests show on the band, and finishing all three pays out once w
   const tally = world.saved['toko:tally:session-1'] as { counts: Record<string, number> }
   expect(tally.counts['quest-day']).toBe(1)
   expect((world.saved['toko:wallet'] as { items: string[] }).items.length > 0).toBe(true)
+})
+
+test('/toko focus hushes the pet until the timer ends, then offers a stretch at the next gap', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:quests': QUESTS_PAID })
+  shell(on, { isError: false, text: 'ok' })
+  await begin($)
+  expect((await $.command.run({ command: 'toko', args: 'focus 25' } as never)).text).toContain('25분')
+  expect((await $.command.run({ command: 'toko', args: 'focus' } as never)).text).toContain('남았어요')
+  await bash($, 'npm test')
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await band.find({ type: 'Text', text: /집중 25분 남음/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /통과|해냈다/ })).toBeUndefined()
+  await band.unmount()
+  await wait(clock, 25 * 60_000 + 2500)
+  const after = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await after.find({ type: 'Text', text: /25분 집중 끝/ })).toBeDefined()
+  await after.press({ key: 'choice-accept' })
+  await after.unmount()
+  await clock.advance(32_000)
+  await end($)
+  const tally = world.saved['toko:tally:session-1'] as { counts: Record<string, number> }
+  expect(tally.counts.focus).toBe(1)
+  expect(tally.counts.stretch).toBe(1)
+  expect((world.saved['toko:earn:session-1'] as { health: number }).health).toBe(10 + 15 + 10)
+})
+
+test('stopping a focus early pays nothing and the room offers to start one again', async ($, on) => {
+  const clock = mock.clock(on, { now: START })
+  const world = engine(on, { 'toko:pet': PET, 'toko:quests': QUESTS_PAID })
+  await begin($)
+  await $.command.run({ command: 'toko', args: '' } as never)
+  const room = await $.ui.mount({ ...ROOM, surface: 'terminal' })
+  await room.press({ key: 'focus-start' })
+  await clock.advance(100)
+  expect(await room.find({ type: 'Button', key: 'focus-stop' })).toBeDefined()
+  await room.press({ key: 'focus-stop' })
+  await wait(clock, 30 * 60_000)
+  expect(await room.find({ type: 'Button', key: 'focus-start' })).toBeDefined()
+  await room.unmount()
+  expect((await $.command.run({ command: 'toko', args: 'focus 3' } as never)).text).toContain('5~120')
+  await end($)
+  expect((world.saved['toko:tally:session-1'] as { counts: Record<string, number> }).counts.focus).toBeUndefined()
 })

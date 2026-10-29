@@ -104,6 +104,8 @@ export type TokoGame = { endsAt: number; caught: number; missed: number }
 
 export type TokoCountdown = { label: string; endsAt: number }
 
+export type TokoFocus = { endsAt: number; minutes: number }
+
 export type TokoFriend = { id: string; name: string; color: TokoColor; mood: TokoMood; status: string; lastSeen: number }
 
 export type TokoPlazaView = {
@@ -129,6 +131,7 @@ declare module 'claude-code' {
       plaza: TokoPlazaView | null
       lessons: readonly string[]
       progress: TokoProgress | null
+      focus: TokoFocus | null
     }
   }
 }
